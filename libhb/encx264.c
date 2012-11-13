@@ -273,7 +273,7 @@ int encx264Init( hb_work_object_t * w, hb_job_t * job )
     }
 
     /* Apply profile and level settings last, if present. */
-    if (job->x264_profile != NULL)
+    if (job->x264_profile != NULL && *job->x264_profile)
     {
         if (x264_param_apply_profile(&param, job->x264_profile))
         {
@@ -282,10 +282,10 @@ int encx264Init( hb_work_object_t * w, hb_job_t * job )
             return 1;
         }
     }
-    if (job->h264_level != NULL)
+    if (job->h264_level != NULL && *job->h264_level)
     {
-        if (hb_apply_h264_level(&param, job->width, job->height,
-                                job->h264_level, job->x264_profile))
+        if (hb_apply_h264_level(&param, job->h264_level,
+                                job->x264_profile, 0) < 0)
         {
             free(pv);
             pv = NULL;
@@ -627,39 +627,50 @@ int encx264Work( hb_work_object_t * w, hb_buffer_t ** buf_in,
     return HB_WORK_OK;
 }
 
-/* Applies the restrictions of the requested H.264 level to an x264_param_t.
- *
- * Returns -1 if an invalid level (or no level) is specified. GUIs should be
- * capable of always providing a valid level.
- *
- * Does not modify resolution/framerate but warns when they exceed level limits.
- *
- * Based on a x264_param_apply_level() draft and other x264 code. */
-int hb_apply_h264_level(x264_param_t *param,
-                        int width, int height,
-                        const char *h264_level,
-                        const char *x264_profile)
+int hb_check_h264_level(const char *h264_level, int width, int height,
+                        int fps_num, int fps_den, int interlaced,
+                        int fake_interlaced)
+{
+    x264_param_t param;
+    x264_param_default(&param);
+    param.i_width           = width;
+    param.i_height          = height;
+    param.i_fps_num         = fps_num;
+    param.i_fps_den         = fps_den;
+    param.b_interlaced      = !!interlaced;
+    param.b_fake_interlaced = !!fake_interlaced;
+    return (hb_apply_h264_level(&param, h264_level, NULL, 1) != 0);
+}
+
+int hb_apply_h264_level(x264_param_t *param, const char *h264_level,
+                        const char *x264_profile, int be_quiet)
 {
     float f_framerate;
     const x264_level_t *x264_level = NULL;
-    int i, i_mb_size, i_mb_rate, i_mb_width, i_mb_height, max_mb_side;
+    int i, i_mb_size, i_mb_rate, i_mb_width, i_mb_height, max_mb_side, ret;
+
+    /*
+     * the H.264 profile determines VBV constraints
+     */
     enum
     {
-        // the H.264 profile determines VBV constraints
-        HB_H264_PROFILE_MAIN,    // Main or Baseline (equivalent)
-        HB_H264_PROFILE_HIGH,    // High (we only do 8-bit for now, so anything 10-bit & lossy is equivalent)
-        HB_H264_PROFILE_HIGH444, // Lossless
+        // Main or Baseline (equivalent)
+        HB_H264_PROFILE_MAIN,
+        // High (no 4:2:2 or 10-bit support, so anything lossy is equivalent)
+        HB_H264_PROFILE_HIGH,
+        // Lossless (4:2:0 8-bit for now)
+        HB_H264_PROFILE_HIGH444,
     } h264_profile;
 
-    /* H.264 profile */
-    //
-    // TODO: FIXME
-    //
-    // we need to guess the profile like x264_sps_init does, otherwise we'll get
-    // an error when setting a Main-incompatible VBV and x264_sps_init guesses
-    // Main profile. x264_sps_init may eventually take VBV into account when
-    // guessing profile, at which point this code can be re-enabled.
-    //
+    /*
+     * H.264 profile
+     *
+     * TODO: we need to guess the profile like x264_sps_init does, otherwise
+     * we'll get an error when setting a Main-incompatible VBV and
+     * x264_sps_init() guesses Main profile. x264_sps_init() may eventually take
+     * VBV into account when guessing profile, at which point this code can be
+     * re-enabled.
+     */
 #if 0
     if (x264_profile != NULL && *x264_profile)
     {
@@ -681,7 +692,7 @@ int hb_apply_h264_level(x264_param_t *param,
     else
 #endif
     {
-        /* guess the H.264 profile if the user didn't request one */
+        // guess the H.264 profile if the user didn't request one
         if (param->rc.i_rc_method == X264_RC_CRF &&
             param->rc.f_rf_constant < 1.0)
         {
@@ -698,10 +709,12 @@ int hb_apply_h264_level(x264_param_t *param,
         }
     }
 
-    /* find the x264_level_t corresponding to the requested level */
+    /*
+     * find the x264_level_t corresponding to the requested level
+     */
     if (h264_level != NULL && *h264_level)
     {
-        for (i = 0; hb_h264_level_names[i]; i++)
+        for (i = 0; hb_h264_level_values[i]; i++)
         {
             if (!strcmp(hb_h264_level_names[i], h264_level))
             {
@@ -731,25 +744,40 @@ int hb_apply_h264_level(x264_param_t *param,
         return -1;
     }
 
-    /* we need at least width and height in order to apply a level correctly */
-    if (width <= 0 || height <= 0)
+    /*
+     * we need at least width and height in order to apply a level correctly
+     */
+    if (param->i_width <= 0 || param->i_height <= 0)
     {
         // error (invalid width or height), abort
         hb_error("hb_apply_h264_level: invalid resolution (width: %d, height: %d)",
-                 width, height);
+                 param->i_width, param->i_height);
         return -1;
     }
 
-    /* some levels do not support interlaced encoding */
+    /*
+     * a return value of 1 means there were warnings
+     */
+    ret = 0;
+
+    /*
+     * some levels do not support interlaced encoding
+     */
     if (x264_level->frame_only && (param->b_interlaced ||
                                    param->b_fake_interlaced))
     {
-        hb_log("hb_apply_h264_level [warning]: interlaced flag not supported for level %s, disabling",
-                h264_level);
+        if (!be_quiet)
+        {
+            hb_log("hb_apply_h264_level [warning]: interlaced flag not supported for level %s, disabling",
+                   h264_level);
+        }
+        ret = 1;
         param->b_interlaced = param->b_fake_interlaced = 0;
     }
 
-    /* frame dimensions & rate (in macroblocks) */
+    /*
+     * frame dimensions and rate (in macroblocks)
+     */
     i_mb_width  = (param->i_width  + 15) / 16;
     i_mb_height = (param->i_height + 15) / 16;
     if (param->b_interlaced || param->b_fake_interlaced)
@@ -769,15 +797,19 @@ int hb_apply_h264_level(x264_param_t *param,
         f_framerate = (float)param->i_fps_num / param->i_fps_den;
     }
 
-    /* sanitize ref/frameref */
+    /*
+     * sanitize ref/frameref
+     */
     if (param->i_keyint_max != 1)
     {
         int i_max_dec_frame_buffering =
             MAX(MIN(x264_level->dpb / (384 * i_mb_size), 16), 1);
         param->i_frame_reference =
             MIN(i_max_dec_frame_buffering, param->i_frame_reference);
-        // some level/resolution combinations may require as little as 1 reference
-        // B-frames & B-pyramid are not compatible with this scenario
+        /*
+         * some level and resolution combos may require as little as 1 ref;
+         * bframes and b-pyramid are not compatible with this scenario
+         */
         if (i_max_dec_frame_buffering < 2)
         {
             param->i_bframe = 0;
@@ -788,7 +820,9 @@ int hb_apply_h264_level(x264_param_t *param,
         }
     }
 
-    /* set and/or sanitize the VBV (if not lossless) */
+    /*
+     * set and/or sanitize the VBV (if not lossless)
+     */
     if (h264_profile != HB_H264_PROFILE_HIGH444)
     {
         // High profile allows for higher VBV bufsize/maxrate
@@ -815,43 +849,713 @@ int hb_apply_h264_level(x264_param_t *param,
         }
     }
 
-    /* sanitize mvrange/mv-range */
+    /*
+     * sanitize mvrange/mv-range
+     */
     param->analyse.i_mv_range =
         MIN(param->analyse.i_mv_range,
             x264_level->mv_range >> !!param->b_interlaced);
 
-    /* TODO: check the rest of the limits */
+    /*
+     * TODO: check the rest of the limits
+     */
 
-    /* things we can do nothing about (too late to change resolution or fps), print warnings */
+    /*
+     * things we can do nothing about (too late to change resolution or fps),
+     * print warnings if we're not being quiet
+     */
     if (x264_level->frame_size < i_mb_size)
     {
-        hb_log("hb_apply_h264_level [warning]: frame size (%dx%d, %d macroblocks) too high for level %s (max. %d macroblocks)",
-               i_mb_width * 16, i_mb_height * 16, i_mb_size, h264_level,
-               x264_level->frame_size);
+        if (!be_quiet)
+        {
+            hb_log("hb_apply_h264_level [warning]: frame size (%dx%d, %d macroblocks) too high for level %s (max. %d macroblocks)",
+                   i_mb_width * 16, i_mb_height * 16, i_mb_size, h264_level,
+                   x264_level->frame_size);
+        }
+        ret = 1;
     }
     else if (x264_level->mbps < i_mb_rate)
     {
-        hb_log("hb_apply_h264_level [warning]: framerate (%.3f) too high for level %s at %dx%d (max. %.3f)",
-               f_framerate, h264_level, width, height,
-               (float)x264_level->mbps / i_mb_size);
+        if (!be_quiet)
+        {
+            hb_log("hb_apply_h264_level [warning]: framerate (%.3f) too high for level %s at %dx%d (max. %.3f)",
+                   f_framerate, h264_level, param->i_width, param->i_height,
+                   (float)x264_level->mbps / i_mb_size);
+        }
+        ret = 1;
     }
-    // width or height squared may not exceed 8 * frame_size (in macroblocks)
-    // thus neither dimension may exceed sqrt(8 * frame_size)
+    /*
+     * width or height squared may not exceed 8 * frame_size (in macroblocks)
+     * thus neither dimension may exceed sqrt(8 * frame_size)
+     */
     max_mb_side = sqrt(x264_level->frame_size * 8);
     if (i_mb_width > max_mb_side)
     {
-        hb_log("hb_apply_h264_level [warning]: frame too wide (%d) for level %s (max. %d)",
-               width, h264_level, max_mb_side * 16);
+        if (!be_quiet)
+        {
+            hb_log("hb_apply_h264_level [warning]: frame too wide (%d) for level %s (max. %d)",
+                   param->i_width, h264_level, max_mb_side * 16);
+        }
+        ret = 1;
     }
     if (i_mb_height > max_mb_side)
     {
-        hb_log("hb_apply_h264_level [warning]: frame too tall (%d) for level %s (max. %d)",
-               height, h264_level, max_mb_side * 16);
+        if (!be_quiet)
+        {
+            hb_log("hb_apply_h264_level [warning]: frame too tall (%d) for level %s (max. %d)",
+                   param->i_height, h264_level, max_mb_side * 16);
+        }
+        ret = 1;
     }
 
-    /* level successfully applied, yay! */
+    /*
+     * level successfully applied, yay!
+     */
     param->i_level_idc = x264_level->level_idc;
-    return 0;
+    return ret;
+}
+
+char * hb_x264_param_unparse(const char *x264_preset,  const char *x264_tune,
+                             const char *x264_encopts, const char *x264_profile,
+                             const char *h264_level, int width, int height)
+{
+    int i;
+    char buf[32];
+    char *unparsed_opts;
+    hb_dict_t *x264_opts;
+    hb_dict_entry_t *entry;
+    x264_param_t defaults, param;
+
+    /*
+     * get the global x264 defaults (what we compare against)
+     */
+    x264_param_default(&defaults);
+
+    /*
+     * apply the defaults, preset and tune
+     */
+    if (x264_param_default_preset(&param, x264_preset, x264_tune) < 0)
+    {
+        /*
+         * Note: GUIs should be able to always specifiy valid preset/tunes, so
+         *       this code will hopefully never be reached
+         */
+        return strdup("hb_x264_param_unparse: invalid x264 preset/tune");
+    }
+
+    /*
+     * apply the additional advanced x264 options
+     */
+    entry     = NULL;
+    x264_opts = hb_encopts_to_dict(x264_encopts, HB_VCODEC_X264);
+    while ((entry = hb_dict_next(x264_opts, entry)))
+    {
+        // let's not pollute GUI logs with x264_param_parse return codes
+        x264_param_parse(&param, entry->key, entry->value);
+    }
+
+    /*
+     * apply the x264 profile, if specified
+     */
+    if (x264_profile != NULL && *x264_profile)
+    {
+        if (x264_param_apply_profile(&param, x264_profile) < 0)
+        {
+            /*
+             * Note: x264_param_apply_profile can bail even when the specified
+             *       profile is valid; examples:
+             *
+             * 1) when profile is baseline and interlaced is set
+             * 2) when profile is not high444 and lossless is set
+             * 
+             * So this can happen even when calling hb_x264_param_unparse from a
+             * GUI - maybe we should sanitize settings before calling
+             * x264_param_apply_profile()?
+             */
+            hb_dict_free(&x264_opts);
+            return strdup("hb_x264_param_unparse: could not apply x264 profile");
+        }
+    }
+
+    /*
+     * apply the h264 level, if specified
+     */
+    if (h264_level != NULL && *h264_level)
+    {
+        // set width/height to avoid issues in hb_apply_h264_level
+        param.i_width  = width;
+        param.i_height = height;
+        // be quiet so at to not pollute GUI logs
+        hb_apply_h264_level(&param, h264_level, x264_profile, 1);
+    }
+
+    /*
+     * if x264_encopts is NULL, x264_opts wasn't initialized
+     */
+    if (x264_opts == NULL && (x264_opts = hb_dict_init(20)) == NULL)
+    {
+        return strdup("hb_x264_param_unparse: could not initialize hb_dict_t");
+    }
+
+    /*
+     * x264 lets you specify some options in multiple ways. For options that we
+     * do unparse, clear the forms that don't match how we unparse said option
+     * from the x264_opts dictionary.
+     *
+     * actual synonyms are already handled by hb_encopts_to_dict().
+     *
+     * "no-deblock" is a special case as it can't be unparsed to "deblock=0"
+     *
+     * also, don't bother with forms that aren't allowed by the x264 CLI, such
+     * as "no-bframes" - there are too many.
+     */
+    hb_dict_unset(&x264_opts, "no-sliced-threads");
+    hb_dict_unset(&x264_opts, "no-scenecut");
+    hb_dict_unset(&x264_opts, "no-b-adapt");
+    hb_dict_unset(&x264_opts, "no-weightb");
+    hb_dict_unset(&x264_opts, "no-cabac");
+    hb_dict_unset(&x264_opts, "interlaced"); // we unparse to tff/bff
+    hb_dict_unset(&x264_opts, "no-interlaced");
+    hb_dict_unset(&x264_opts, "no-8x8dct");
+    hb_dict_unset(&x264_opts, "no-mixed-refs");
+    hb_dict_unset(&x264_opts, "no-fast-pskip");
+    hb_dict_unset(&x264_opts, "no-dct-decimate");
+    hb_dict_unset(&x264_opts, "no-psy");
+    hb_dict_unset(&x264_opts, "no-mbtree");
+
+    /*
+     * compare defaults to param and unparse to the x264_opts dictionary
+     */
+    if (!param.b_sliced_threads != !defaults.b_sliced_threads)
+    {
+        // can be modified by: tune zerolatency
+        sprintf(buf, "%d", !!param.b_sliced_threads);
+        hb_dict_set(&x264_opts, "sliced-threads", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "sliced-threads");
+    }
+    if (param.i_sync_lookahead != defaults.i_sync_lookahead)
+    {
+        // can be modified by: tune zerolatency
+        sprintf(buf, "%d", param.i_sync_lookahead);
+        hb_dict_set(&x264_opts, "sync-lookahead", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "sync-lookahead");
+    }
+    if (param.i_level_idc != defaults.i_level_idc)
+    {
+        // can be modified by: level
+        for (i = 0; hb_h264_level_values[i]; i++)
+            if (param.i_level_idc == hb_h264_level_values[i])
+                hb_dict_set(&x264_opts, "level", hb_h264_level_names[i]);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "level");
+    }
+    if (param.i_frame_reference != defaults.i_frame_reference)
+    {
+        // can be modified by: presets, tunes, level
+        sprintf(buf, "%d", param.i_frame_reference);
+        hb_dict_set(&x264_opts, "ref", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "ref");
+    }
+    if (param.i_scenecut_threshold != defaults.i_scenecut_threshold)
+    {
+        // can be modified by: preset ultrafast
+        sprintf(buf, "%d", param.i_scenecut_threshold);
+        hb_dict_set(&x264_opts, "scenecut", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "scenecut");
+    }
+    if (param.i_bframe != defaults.i_bframe)
+    {
+        // can be modified by: presets, tunes, profile, level
+        sprintf(buf, "%d", param.i_bframe);
+        hb_dict_set(&x264_opts, "bframes", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "bframes");
+    }
+    if (param.i_bframe > 0)
+    {
+        if (param.i_bframe_adaptive != defaults.i_bframe_adaptive)
+        {
+            // can be modified by: presets
+            sprintf(buf, "%d", param.i_bframe_adaptive);
+            hb_dict_set(&x264_opts, "b-adapt", buf);
+        }
+        else
+        {
+            hb_dict_unset(&x264_opts, "b-adapt");
+        }
+        if (param.i_bframe > 1 &&
+            param.i_bframe_pyramid != defaults.i_bframe_pyramid)
+        {
+            // can be modified by: level
+            if (param.i_bframe_pyramid < X264_B_PYRAMID_NONE)
+                param.i_bframe_pyramid = X264_B_PYRAMID_NONE;
+            if (param.i_bframe_pyramid > X264_B_PYRAMID_NORMAL)
+                param.i_bframe_pyramid = X264_B_PYRAMID_NORMAL;
+            for (i = 0; x264_b_pyramid_names[i] != NULL; i++)
+                if (param.i_bframe_pyramid == i)
+                    hb_dict_set(&x264_opts, "b-pyramid",
+                                x264_b_pyramid_names[i]);
+        }
+        else
+        {
+            hb_dict_unset(&x264_opts, "b-pyramid");
+        }
+        if (param.analyse.i_direct_mv_pred != defaults.analyse.i_direct_mv_pred)
+        {
+            // can be modified by: presets
+            if (param.analyse.i_direct_mv_pred < X264_DIRECT_PRED_NONE)
+                param.analyse.i_direct_mv_pred = X264_DIRECT_PRED_NONE;
+            if (param.analyse.i_direct_mv_pred > X264_DIRECT_PRED_AUTO)
+                param.analyse.i_direct_mv_pred = X264_DIRECT_PRED_AUTO;
+            for (i = 0; x264_direct_pred_names[i] != NULL; i++)
+                if (param.analyse.i_direct_mv_pred == i)
+                    hb_dict_set(&x264_opts, "direct",
+                                x264_direct_pred_names[i]);
+        }
+        else
+        {
+            hb_dict_unset(&x264_opts, "direct");
+        }
+        if (!param.analyse.b_weighted_bipred !=
+            !defaults.analyse.b_weighted_bipred)
+        {
+            // can be modified by: preset ultrafast, tune fastdecode
+            sprintf(buf, "%d", !!param.analyse.b_weighted_bipred);
+            hb_dict_set(&x264_opts, "weightb", buf);
+        }
+        else
+        {
+            hb_dict_unset(&x264_opts, "weightb");
+        }
+    }
+    else
+    {
+        // no bframes, these options have no effect
+        hb_dict_unset(&x264_opts, "b-adapt");
+        hb_dict_unset(&x264_opts, "b-pyramid");
+        hb_dict_unset(&x264_opts, "direct");
+        hb_dict_unset(&x264_opts, "weightb");
+        hb_dict_unset(&x264_opts, "b-bias");
+        hb_dict_unset(&x264_opts, "open-gop");
+    }
+    if (!param.b_deblocking_filter != !defaults.b_deblocking_filter)
+    {
+        // can be modified by: preset ultrafast, tune fastdecode
+        sprintf(buf, "%d", !param.b_deblocking_filter);
+        hb_dict_set(&x264_opts, "no-deblock", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "no-deblock");
+    }
+    if (param.b_deblocking_filter &&
+        (param.i_deblocking_filter_alphac0 != defaults.i_deblocking_filter_alphac0 ||
+         param.i_deblocking_filter_beta    != defaults.i_deblocking_filter_beta))
+    {
+        // can be modified by: tunes
+        sprintf(buf, "%d,%d", param.i_deblocking_filter_alphac0,
+                param.i_deblocking_filter_beta);
+        hb_dict_set(&x264_opts, "deblock", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "deblock");
+    }
+    if (!param.b_cabac != !defaults.b_cabac)
+    {
+        // can be modified by: preset ultrafast, tune fastdecode, profile
+        sprintf(buf, "%d", !!param.b_cabac);
+        hb_dict_set(&x264_opts, "cabac", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "cabac");
+    }
+    if (param.b_interlaced != defaults.b_interlaced)
+    {
+        if (param.b_tff)
+        {
+            hb_dict_set(&x264_opts, "tff", "1");
+            hb_dict_unset(&x264_opts, "bff");
+        }
+        else
+        {
+            hb_dict_set(&x264_opts, "bff", "1");
+            hb_dict_unset(&x264_opts, "tff");
+        }
+        hb_dict_unset(&x264_opts, "fake-interlaced");
+    }
+    else if (param.b_fake_interlaced != defaults.b_fake_interlaced)
+    {
+        hb_dict_set(&x264_opts, "fake-interlaced", "1");
+        hb_dict_unset(&x264_opts, "tff");
+        hb_dict_unset(&x264_opts, "bff");
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "tff");
+        hb_dict_unset(&x264_opts, "bff");
+        hb_dict_unset(&x264_opts, "fake-interlaced");
+    }
+    if (param.i_cqm_preset == defaults.i_cqm_preset &&
+        param.psz_cqm_file == defaults.psz_cqm_file)
+    {
+        // can be reset to default by: profile
+        hb_dict_unset(&x264_opts, "cqm");
+        hb_dict_unset(&x264_opts, "cqm4");
+        hb_dict_unset(&x264_opts, "cqm8");
+        hb_dict_unset(&x264_opts, "cqm4i");
+        hb_dict_unset(&x264_opts, "cqm4p");
+        hb_dict_unset(&x264_opts, "cqm8i");
+        hb_dict_unset(&x264_opts, "cqm8p");
+        hb_dict_unset(&x264_opts, "cqm4iy");
+        hb_dict_unset(&x264_opts, "cqm4ic");
+        hb_dict_unset(&x264_opts, "cqm4py");
+        hb_dict_unset(&x264_opts, "cqm4pc");
+    }
+    /*
+     * Note: param.analyse.intra can only be modified directly or by using
+     *       x264 --preset ultrafast, but not via the "analyse" option
+     */
+    if (param.analyse.inter != defaults.analyse.inter)
+    {
+        // can be modified by: presets, tune touhou
+        if (!param.analyse.inter)
+        {
+            hb_dict_set(&x264_opts, "analyse", "none");
+        }
+        else if ((param.analyse.inter & X264_ANALYSE_I4x4)      &&
+                 (param.analyse.inter & X264_ANALYSE_I8x8)      &&
+                 (param.analyse.inter & X264_ANALYSE_PSUB16x16) &&
+                 (param.analyse.inter & X264_ANALYSE_PSUB8x8)   &&
+                 (param.analyse.inter & X264_ANALYSE_BSUB16x16))
+        {
+            hb_dict_set(&x264_opts, "analyse", "all");
+        }
+        else
+        {
+            sprintf(buf, "%s", "");
+            if (param.analyse.inter & X264_ANALYSE_I4x4)
+            {
+                strcat(buf, "i4x4");
+            }
+            if (param.analyse.inter & X264_ANALYSE_I8x8)
+            {
+                if (*buf)
+                    strcat(buf, ",");
+                strcat(buf, "i8x8");
+            }
+            if (param.analyse.inter & X264_ANALYSE_PSUB16x16)
+            {
+                if (*buf)
+                    strcat(buf, ",");
+                strcat(buf, "p8x8");
+            }
+            if (param.analyse.inter & X264_ANALYSE_PSUB8x8)
+            {
+                if (*buf)
+                    strcat(buf, ",");
+                strcat(buf, "p4x4");
+            }
+            if (param.analyse.inter & X264_ANALYSE_BSUB16x16)
+            {
+                if (*buf)
+                    strcat(buf, ",");
+                strcat(buf, "b8x8");
+            }
+            hb_dict_set(&x264_opts, "analyse", buf);
+        }
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "analyse");
+    }
+    if (!param.analyse.b_transform_8x8 != !defaults.analyse.b_transform_8x8)
+    {
+        // can be modified by: preset ultrafast, profile
+        sprintf(buf, "%d", !!param.analyse.b_transform_8x8);
+        hb_dict_set(&x264_opts, "8x8dct", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "8x8dct");
+    }
+    if (param.analyse.i_weighted_pred != defaults.analyse.i_weighted_pred)
+    {
+        // can be modified by: presets, tune fastdecode, profile
+        sprintf(buf, "%d", param.analyse.i_weighted_pred);
+        hb_dict_set(&x264_opts, "weightp", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "weightp");
+    }
+    if (param.analyse.i_me_method != defaults.analyse.i_me_method)
+    {
+        // can be modified by: presets
+        if (param.analyse.i_me_method < X264_ME_DIA)
+            param.analyse.i_me_method = X264_ME_DIA;
+        if (param.analyse.i_me_method > X264_ME_TESA)
+            param.analyse.i_me_method = X264_ME_TESA;
+        for (i = 0; x264_motion_est_names[i] != NULL; i++)
+            if (param.analyse.i_me_method == i)
+                hb_dict_set(&x264_opts, "me", x264_motion_est_names[i]);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "me");
+    }
+    if (param.analyse.i_me_range != defaults.analyse.i_me_range)
+    {
+        // can be modified by: presets
+        sprintf(buf, "%d", param.analyse.i_me_range);
+        hb_dict_set(&x264_opts, "merange", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "merange");
+    }
+    if (param.analyse.i_mv_range != defaults.analyse.i_mv_range)
+    {
+        // can be modified by: level
+        sprintf(buf, "%d", param.analyse.i_mv_range);
+        hb_dict_set(&x264_opts, "mvrange", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "mvrange");
+    }
+    if (param.analyse.i_subpel_refine > 9 && (param.rc.i_aq_mode == 0 ||
+                                              param.analyse.i_trellis < 2))
+    {
+        // subme 10 and higher require AQ and trellis 2
+        param.analyse.i_subpel_refine = 9;
+    }
+    if (param.analyse.i_subpel_refine != defaults.analyse.i_subpel_refine)
+    {
+        // can be modified by: presets
+        sprintf(buf, "%d", param.analyse.i_subpel_refine);
+        hb_dict_set(&x264_opts, "subme", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "subme");
+    }
+    if (!param.analyse.b_mixed_references !=
+        !defaults.analyse.b_mixed_references)
+    {
+        // can be modified by: presets
+        sprintf(buf, "%d", !!param.analyse.b_mixed_references);
+        hb_dict_set(&x264_opts, "mixed-refs", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "mixed-refs");
+    }
+    if (param.analyse.i_trellis != defaults.analyse.i_trellis)
+    {
+        // can be modified by: presets
+        sprintf(buf, "%d", param.analyse.i_trellis);
+        hb_dict_set(&x264_opts, "trellis", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "trellis");
+    }
+    if (!param.analyse.b_fast_pskip != !defaults.analyse.b_fast_pskip)
+    {
+        // can be modified by: preset placebo
+        sprintf(buf, "%d", !!param.analyse.b_fast_pskip);
+        hb_dict_set(&x264_opts, "fast-pskip", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "fast-pskip");
+    }
+    if (!param.analyse.b_dct_decimate != !defaults.analyse.b_dct_decimate)
+    {
+        // can be modified by: tune grain
+        sprintf(buf, "%d", !!param.analyse.b_dct_decimate);
+        hb_dict_set(&x264_opts, "dct-decimate", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "dct-decimate");
+    }
+    if (!param.analyse.b_psy != !defaults.analyse.b_psy)
+    {
+        // can be modified by: tunes
+        sprintf(buf, "%d", !!param.analyse.b_psy);
+        hb_dict_set(&x264_opts, "psy", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "psy");
+    }
+    if (param.analyse.b_psy &&
+        (param.analyse.f_psy_rd      != defaults.analyse.f_psy_rd ||
+         param.analyse.f_psy_trellis != defaults.analyse.f_psy_trellis))
+    {
+        // can be modified by: tunes
+        sprintf(buf, "%.2f,%.2f", param.analyse.f_psy_rd,
+                param.analyse.f_psy_trellis);
+        hb_dict_set(&x264_opts, "psy-rd", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "psy-rd");
+    }
+    /*
+     * Note: while deadzone is incompatible with trellis, it still has a slight
+     *       effect on the output even when trellis is on, so always unparse it.
+     */
+    if (param.analyse.i_luma_deadzone[0] != defaults.analyse.i_luma_deadzone[0])
+    {
+        // can be modified by: tune grain
+        sprintf(buf, "%d", param.analyse.i_luma_deadzone[0]);
+        hb_dict_set(&x264_opts, "deadzone-inter", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "deadzone-inter");
+    }
+    if (param.analyse.i_luma_deadzone[1] != defaults.analyse.i_luma_deadzone[1])
+    {
+        // can be modified by: tune grain
+        sprintf(buf, "%d", param.analyse.i_luma_deadzone[1]);
+        hb_dict_set(&x264_opts, "deadzone-intra", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "deadzone-intra");
+    }
+    if (param.rc.i_vbv_buffer_size != defaults.rc.i_vbv_buffer_size)
+    {
+        // can be modified by: level
+        sprintf(buf, "%d", param.rc.i_vbv_buffer_size);
+        hb_dict_set(&x264_opts, "vbv-bufsize", buf);
+        if (param.rc.i_vbv_max_bitrate != defaults.rc.i_vbv_max_bitrate)
+        {
+            // can be modified by: level
+            sprintf(buf, "%d", param.rc.i_vbv_max_bitrate);
+            hb_dict_set(&x264_opts, "vbv-bitrate", buf);
+        }
+        else
+        {
+            hb_dict_unset(&x264_opts, "vbv-maxrate");
+        }
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "vbv-bufsize");
+        hb_dict_unset(&x264_opts, "vbv-maxrate");
+    }
+    if (param.rc.f_ip_factor != defaults.rc.f_ip_factor)
+    {
+        // can be modified by: tune grain
+        sprintf(buf, "%.2f", param.rc.f_ip_factor);
+        hb_dict_set(&x264_opts, "ipratio", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "ipratio");
+    }
+    if (param.i_bframe > 0 && !param.rc.b_mb_tree &&
+        param.rc.f_pb_factor != defaults.rc.f_pb_factor)
+    {
+        // can be modified by: tune grain
+        sprintf(buf, "%.2f", param.rc.f_pb_factor);
+        hb_dict_set(&x264_opts, "pbratio", buf);
+    }
+    else
+    {
+        // pbratio requires bframes and is incomaptible with mbtree
+        hb_dict_unset(&x264_opts, "pbratio");
+    }
+    if (param.rc.f_qcompress != defaults.rc.f_qcompress)
+    {
+        // can be modified by: tune grain
+        sprintf(buf, "%.2f", param.rc.f_qcompress);
+        hb_dict_set(&x264_opts, "qcomp", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "qcomp");
+    }
+    if (param.rc.i_aq_mode != defaults.rc.i_aq_mode)
+    {
+        // can be modified by: preset ultrafast, tune psnr
+        sprintf(buf, "%d", param.rc.i_aq_mode);
+        hb_dict_set(&x264_opts, "aq-mode", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "aq-mode");
+    }
+    if (param.rc.i_aq_mode > 0 &&
+        param.rc.f_aq_strength != defaults.rc.f_aq_strength)
+    {
+        // can be modified by: tunes
+        sprintf(buf, "%.2f", param.rc.f_aq_strength);
+        hb_dict_set(&x264_opts, "aq-strength", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "aq-strength");
+    }
+    if (!param.rc.b_mb_tree != !defaults.rc.b_mb_tree)
+    {
+        // can be modified by: presets, tune zerolatency
+        sprintf(buf, "%d", !!param.rc.b_mb_tree);
+        hb_dict_set(&x264_opts, "mbtree", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "mbtree");
+    }
+    if (param.rc.i_lookahead != defaults.rc.i_lookahead)
+    {
+        // can be modified by: presets, tune zerolatency
+        sprintf(buf, "%d", param.rc.i_lookahead);
+        hb_dict_set(&x264_opts, "rc-lookahead", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "rc-lookahead");
+    }
+    if (!param.b_vfr_input != !defaults.b_vfr_input)
+    {
+        // can be modified by: tune zerolatency
+        sprintf(buf, "%d", !param.b_vfr_input);
+        hb_dict_set(&x264_opts, "force-cfr", buf);
+    }
+    else
+    {
+        hb_dict_unset(&x264_opts, "force-cfr");
+    }
+
+    /* convert the x264_opts dictionary to an encopts string */
+    unparsed_opts = hb_dict_to_encopts(x264_opts);
+    hb_dict_free(&x264_opts);
+
+    /* we're done */
+    return unparsed_opts;
 }
 
 const char * const * hb_x264_presets()

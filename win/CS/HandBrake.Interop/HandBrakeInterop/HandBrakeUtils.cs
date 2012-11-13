@@ -11,7 +11,7 @@ namespace HandBrake.Interop
 {
 	using System;
 	using System.Collections.Generic;
-
+	using System.Runtime.InteropServices;
 	using HandBrake.Interop.HbLib;
 	using HandBrake.Interop.Model;
 	using HandBrake.Interop.Model.Encoding;
@@ -128,6 +128,41 @@ namespace HandBrake.Interop
 
 				System.Diagnostics.Debug.WriteLine("ERROR: " + message);
 			}
+		}
+
+		/// <summary>
+		/// Gets the standard x264 option name given the starting point.
+		/// </summary>
+		/// <returns>The standard x264 option name.</returns>
+		public static string SanitizeX264OptName(string name)
+		{
+			IntPtr namePtr = Marshal.StringToHGlobalAnsi(name);
+			string sanitizedName = Marshal.PtrToStringAnsi(HBFunctions.hb_x264_encopt_name(namePtr));
+			Marshal.FreeHGlobal(namePtr);
+			return sanitizedName;
+		}
+
+		/// <summary>
+		/// Checks to see if the given H.264 level is valid given the inputs.
+		/// </summary>
+		/// <param name="level">The level to check.</param>
+		/// <param name="width">The output picture width.</param>
+		/// <param name="height">The output picture height.</param>
+		/// <param name="fpsNumerator">The rate numerator.</param>
+		/// <param name="fpsDenominator">The rate denominator.</param>
+		/// <param name="interlaced">True if x264 interlaced output is enabled.</param>
+		/// <param name="fakeInterlaced">True if x264 fake interlacing is enabled.</param>
+		/// <returns>True if the level is valid.</returns>
+		public static bool IsH264LevelValid(string level, int width, int height, int fpsNumerator, int fpsDenominator, bool interlaced, bool fakeInterlaced)
+		{
+			return HBFunctions.hb_check_h264_level(
+				level, 
+				width, 
+				height, 
+				fpsNumerator, 
+				fpsDenominator, 
+				interlaced ? 1 : 0,
+				fakeInterlaced ? 1 : 0) == 0;
 		}
 
 		/// <summary>

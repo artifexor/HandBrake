@@ -960,11 +960,10 @@ hb_stream_t * hb_bd_stream_open( hb_title_t *title )
         update_ts_streams( d, pid, 0, stream_type, S, NULL );
     }
 
-    // When scanning, title->job == NULL.  We don't need to wait for
-    // a PCR when scanning. In fact, it trips us up on the first
-    // preview of every title since we would have to read quite a
-    // lot of data before finding the PCR.
-    if ( title->job )
+    // We don't need to wait for a PCR when scanning. In fact, it
+    // trips us up on the first preview of every title since we would
+    // have to read quite a lot of data before finding the PCR.
+    if ( !(title->flags & HBTF_SCAN_COMPLETE) )
     {
         /* BD has PCRs, but the BD index always points to a packet
          * after a PCR packet, so we will not see the initial PCR
@@ -2774,7 +2773,6 @@ int decode_program_map(hb_stream_t* stream)
     stream->pmt_info.PCR_PID = bits_get(&bb, 13);
     bits_get(&bb, 4);
     int program_info_length = bits_get(&bb, 12);
-
     int i;
     for (i = 0; i < program_info_length - 2; )
     {
@@ -4365,13 +4363,19 @@ static void hb_ts_resolve_pid_types(hb_stream_t *stream)
         total_size += buf->size;
 
         if ( total_size > HB_MAX_PROBE_SIZE * 2 )
+        {
+            hb_buffer_close(&buf);
             break;
+        }
 
         int idx;
         idx = index_of_id( stream, buf->s.id );
 
         if (idx < 0 || stream->pes.list[idx].stream_kind != U )
+        {
+            hb_buffer_close(&buf);
             continue;
+        }
 
         hb_pes_stream_t *pes = &stream->pes.list[idx];
 
@@ -4389,6 +4393,7 @@ static void hb_ts_resolve_pid_types(hb_stream_t *stream)
                         pes->codec_name, pes->stream_id, pes->stream_id_ext);
             }
         }
+        hb_buffer_close(&buf);
     }
     // Clean up any probe buffers and set all remaining unknown
     // streams to 'kind' N
@@ -5364,6 +5369,7 @@ static void add_ffmpeg_subtitle( hb_title_t *title, hb_stream_t *stream, int id 
 static char *get_ffmpeg_metadata_value( AVDictionary *m, char *key )
 {
     AVDictionaryEntry *tag = NULL;
+
     while ( (tag = av_dict_get(m, "", tag, AV_DICT_IGNORE_SUFFIX)) )
     {
         if ( !strcmp( key, tag->key ) )
@@ -5416,6 +5422,64 @@ static void add_ffmpeg_attachment( hb_title_t *title, hb_stream_t *stream, int i
     attachment->size = codec->extradata_size;
 
     hb_list_add(title->list_attachment, attachment);
+}
+
+static int ffmpeg_decmetadata( AVDictionary *m, hb_title_t *title )
+{
+    int result = 0;
+    AVDictionaryEntry *tag = NULL;
+    while ( (tag = av_dict_get(m, "", tag, AV_DICT_IGNORE_SUFFIX)) )
+    {
+        if ( !strcasecmp( "TITLE", tag->key ) )
+        {
+            hb_metadata_set_name(title->metadata, tag->value);
+            result = 1;
+        }
+        else if ( !strcasecmp( "ARTIST", tag->key ) )
+        {
+            hb_metadata_set_artist(title->metadata, tag->value);
+            result = 1;
+        }
+        else if ( !strcasecmp( "DIRECTOR", tag->key ) ||
+                  !strcasecmp( "album_artist", tag->key ) )
+        {
+            hb_metadata_set_album_artist(title->metadata, tag->value);
+            result = 1;
+        }
+        else if ( !strcasecmp( "COMPOSER", tag->key ) )
+        {
+            hb_metadata_set_composer(title->metadata, tag->value);
+            result = 1;
+        }
+        else if ( !strcasecmp( "DATE_RELEASED", tag->key ) ||
+                  !strcasecmp( "date", tag->key ) )
+        {
+            hb_metadata_set_release_date(title->metadata, tag->value);
+            result = 1;
+        }
+        else if ( !strcasecmp( "SUMMARY", tag->key ) ||
+                  !strcasecmp( "comment", tag->key ) )
+        {
+            hb_metadata_set_comment(title->metadata, tag->value);
+            result = 1;
+        }
+        else if ( !strcasecmp( "GENRE", tag->key ) )
+        {
+            hb_metadata_set_genre(title->metadata, tag->value);
+            result = 1;
+        }
+        else if ( !strcasecmp( "DESCRIPTION", tag->key ) )
+        {
+            hb_metadata_set_description(title->metadata, tag->value);
+            result = 1;
+        }
+        else if ( !strcasecmp( "SYNOPSIS", tag->key ) )
+        {
+            hb_metadata_set_long_description(title->metadata, tag->value);
+            result = 1;
+        }
+    }
+    return result;
 }
 
 static hb_title_t *ffmpeg_title_scan( hb_stream_t *stream, hb_title_t *title )
@@ -5513,16 +5577,20 @@ static hb_title_t *ffmpeg_title_scan( hb_stream_t *stream, hb_title_t *title )
                 chapter->seconds = ( seconds % 60 );
 
                 tag = av_dict_get( m->metadata, "title", NULL, 0 );
-                /* Ignore generic chapter names set by MakeMKV ("Chapter 00" etc.).
+                /* Ignore generic chapter names set by MakeMKV
+                 * ("Chapter 00" etc.).
                  * Our default chapter names are better. */
                 if( tag && tag->value &&
-                    ( strncmp( "Chapter ", tag->value, 8 ) || strlen( tag->value ) > 11 ) )
+                    ( strncmp( "Chapter ", tag->value, 8 ) ||
+                      strlen( tag->value ) > 11 ) )
                 {
-                    strcpy( chapter->title, tag->value );
+                    hb_chapter_set_title( chapter, tag->value );
                 }
                 else
                 {
-                    sprintf( chapter->title, "Chapter %d", chapter->index );
+                    char chapter_title[80];
+                    sprintf( chapter_title, "Chapter %d", chapter->index );
+                    hb_chapter_set_title( chapter, chapter_title );
                 }
 
                 hb_deep_log( 2, "Added chapter %i, name='%s', dur=%"PRIu64", (%02i:%02i:%02i)",
@@ -5536,7 +5604,11 @@ static hb_title_t *ffmpeg_title_scan( hb_stream_t *stream, hb_title_t *title )
     /*
      * Fill the metadata.
      */
-    decmetadata( title );
+    // JJJ: is this necessary? can we just get this metadata from libav api's?
+    if (!decmetadata( title ))
+    {
+        ffmpeg_decmetadata( ic->metadata, title );
+    }
 
     if( hb_list_count( title->list_chapter ) == 0 )
     {
@@ -5712,6 +5784,14 @@ hb_buffer_t * hb_ffmpeg_read( hb_stream_t *stream )
     {
         case AVMEDIA_TYPE_VIDEO:
             buf->s.type = VIDEO_BUF;
+            /*
+             * libav avcodec_decode_video2() needs AVPacket flagged with AV_PKT_FLAG_KEY
+             * for some codecs. For example, sequence of PNG in a mov container.
+             */
+            if ( stream->ffmpeg_pkt->flags & AV_PKT_FLAG_KEY )
+            {
+                buf->s.frametype |= HB_FRAME_KEY;
+            }
             break;
 
         case AVMEDIA_TYPE_AUDIO:
@@ -5772,16 +5852,25 @@ hb_buffer_t * hb_ffmpeg_read( hb_stream_t *stream )
 static int ffmpeg_seek( hb_stream_t *stream, float frac )
 {
     AVFormatContext *ic = stream->ffmpeg_ic;
+    int res;
     if ( frac > 0. )
     {
         int64_t pos = (double)stream->ffmpeg_ic->duration * (double)frac +
                 ffmpeg_initial_timestamp( stream );
-        avformat_seek_file( ic, -1, 0, pos, pos, AVSEEK_FLAG_BACKWARD);
+        res = avformat_seek_file( ic, -1, 0, pos, pos, AVSEEK_FLAG_BACKWARD);
+        if (res < 0)
+        {
+            hb_error("avformat_seek_file failed");
+        }
     }
     else
     {
         int64_t pos = ffmpeg_initial_timestamp( stream );
-        avformat_seek_file( ic, -1, 0, pos, pos, AVSEEK_FLAG_BACKWARD);
+        res = avformat_seek_file( ic, -1, 0, pos, pos, AVSEEK_FLAG_BACKWARD);
+        if (res < 0)
+        {
+            hb_error("avformat_seek_file failed");
+        }
     }
     stream->need_keyframe = 1;
     return 1;

@@ -35,11 +35,13 @@ struct hb_work_private_s
     hb_list_t    *list;
     const AVCRC  *crc_table;
     uint8_t       frame[3840];
+    uint8_t       buf[1536 * 6 * sizeof(float)]; // decoded samples (1 frame, 6 channels)
 
     int                 nchannels;
+    int                 remap_table[6];
+    int                 use_mix_levels;
     uint64_t            channel_layout;
     hb_audio_resample_t *resample;
-    int                 *remap_table;
 };
 
 static int  deca52Init( hb_work_object_t *, hb_job_t * );
@@ -148,6 +150,13 @@ static int deca52Init(hb_work_object_t *w, hb_job_t *job)
             hb_error("deca52Init: hb_audio_resample_init() failed");
             return 1;
         }
+
+        /* liba52 doesn't provide us with Lt/Rt mix levels.
+         * When doing an Lt/Rt downmix, ignore mix levels
+         * (this matches what liba52's own downmix code does). */
+        pv->use_mix_levels =
+            !(audio->config.out.mixdown == HB_AMIXDOWN_DOLBY ||
+              audio->config.out.mixdown == HB_AMIXDOWN_DOLBYPLII);
     }
 
     return 0;
@@ -169,10 +178,6 @@ static void deca52Close(hb_work_object_t *w)
                pv->frames, pv->crc_errors, pv->bytes_dropped);
     }
 
-    if (pv->remap_table != NULL)
-    {
-        free(pv->remap_table);
-    }
     hb_audio_resample_free(pv->resample);
     hb_list_empty(&pv->list);
     a52_free(pv->state);
@@ -313,14 +318,17 @@ static hb_buffer_t* Decode(hb_work_object_t *w)
     else
     {
         int i, j, k;
-        hb_buffer_t *flt;
 
         /* Feed liba52 */
         a52_frame(pv->state, pv->frame, &pv->flags, &pv->level, 0);
 
-        /* If the user requested strong DRC (>1), adjust it.
-         * If the user requested default DRC (1), leave it alone.
-         * If the user requested no DRC (0), call a null function. */
+        /*
+         * If the user requested strong  DRC (>1), adjust it.
+         * If the user requested default DRC  (1), leave it alone.
+         * If the user requested no      DRC  (0), call a null function.
+         *
+         * a52_frame() resets the callback so it must be called for each frame.
+         */
         if (pv->dynamic_range_compression > 1.0)
         {
             a52_dynrng(pv->state, dynrng_call, &pv->dynamic_range_compression);
@@ -330,40 +338,45 @@ static hb_buffer_t* Decode(hb_work_object_t *w)
             a52_dynrng(pv->state, NULL, NULL);
         }
 
-        /* Update input channel layout and prepare remapping */
+        /*
+         * Update input channel layout, prepare remapping and downmixing
+         */
         uint64_t new_layout = (acmod2layout[(pv->flags & A52_CHANNEL_MASK)] |
                                lfeon2layout[(pv->flags & A52_LFE) != 0]);
+
         if (new_layout != pv->channel_layout)
         {
-            if (pv->remap_table != NULL)
-            {
-                free(pv->remap_table);
-            }
-            pv->remap_table = hb_audio_remap_build_table(new_layout,
-                                                         &hb_libav_chan_map,
-                                                         &hb_liba52_chan_map);
-            if (pv->remap_table == NULL)
-            {
-                hb_error("deca52: hb_audio_remap_build_table() failed");
-                return NULL;
-            }
             pv->channel_layout = new_layout;
-            pv->nchannels = av_get_channel_layout_nb_channels(new_layout);
+            pv->nchannels      = av_get_channel_layout_nb_channels(new_layout);
+            hb_audio_resample_set_channel_layout(pv->resample,
+                                                 pv->channel_layout,
+                                                 pv->nchannels);
+            hb_audio_remap_build_table(&hb_libav_chan_map, &hb_liba52_chan_map,
+                                       pv->channel_layout, pv->remap_table);
+        }
+        if (pv->use_mix_levels)
+        {
+            hb_audio_resample_set_mix_levels(pv->resample,
+                                             (double)pv->state->slev,
+                                             (double)pv->state->clev);
+        }
+        if (hb_audio_resample_update(pv->resample))
+        {
+            hb_log("deca52: hb_audio_resample_update() failed");
+            return NULL;
         }
 
-        /* 6 blocks per frame, 256 samples per block, pv->nchannels channels */
-        flt = hb_buffer_init(1536 * pv->nchannels * sizeof(float));
-
+        // decode all blocks before downmixing
         for (i = 0; i < 6; i++)
         {
-            sample_t *samples_in;
-            float    *samples_out;
+            float *samples_in, *samples_out;
 
             a52_block(pv->state);
-            samples_in  = a52_samples(pv->state);
-            samples_out = ((float*)flt->data) + 256 * pv->nchannels * i;
+            samples_in  = (float*)a52_samples(pv->state);
+            samples_out = (float*)(pv->buf +
+                                   (i * pv->nchannels * 256 * sizeof(float)));
 
-            /* Planar -> interleaved, remap to Libav channel order */
+            // Planar -> interleaved, remap to Libav channel order
             for (j = 0; j < 256; j++)
             {
                 for (k = 0; k < pv->nchannels; k++)
@@ -373,32 +386,18 @@ static hb_buffer_t* Decode(hb_work_object_t *w)
                 }
             }
         }
-        hb_audio_resample_set_channel_layout(pv->resample,
-                                             pv->channel_layout,
-                                             pv->nchannels);
-        hb_audio_resample_set_mix_levels(pv->resample,
-                                         (double)pv->state->slev,
-                                         (double)pv->state->clev);
-        if (hb_audio_resample_update(pv->resample))
-        {
-            hb_log("deca52: hb_audio_resample_update() failed");
-            hb_buffer_close(&flt);
-            return NULL;
-        }
-        out = hb_audio_resample(pv->resample, (void*)flt->data, 1536);
-        hb_buffer_close(&flt);
+
+        out = hb_audio_resample(pv->resample, (void*)pv->buf, 1536);
     }
 
-    if (out == NULL)
+    if (out != NULL)
     {
-        return NULL;
+        out->s.start          = pts;
+        out->s.duration       = frame_dur;
+        pts                  += frame_dur;
+        out->s.stop           = pts;
+        pv->next_expected_pts = pts;
     }
-
-    out->s.start          = pts;
-    out->s.duration       = frame_dur;
-    pts                  += frame_dur;
-    out->s.stop           = pts;
-    pv->next_expected_pts = pts;
     return out;
 }
 

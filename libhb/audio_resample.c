@@ -15,7 +15,7 @@ hb_audio_resample_t* hb_audio_resample_init(enum AVSampleFormat sample_fmt,
                                             int hb_amixdown, int do_remix,
                                             int normalize_mix_level)
 {
-    hb_audio_resample_t *resample = malloc(sizeof(hb_audio_resample_t));
+    hb_audio_resample_t *resample = calloc(1, sizeof(hb_audio_resample_t));
     if (resample == NULL)
     {
         hb_error("hb_audio_resample_init: failed to allocate resample");
@@ -113,8 +113,7 @@ int hb_audio_resample_update(hb_audio_resample_t *resample)
     int ret, resample_changed;
 
     resample->resample_needed =
-        (resample->resample_needed ||
-         resample->out.sample_fmt != resample->in.sample_fmt ||
+        (resample->out.sample_fmt != resample->in.sample_fmt ||
          resample->out.channel_layout != resample->in.channel_layout);
 
     resample_changed =

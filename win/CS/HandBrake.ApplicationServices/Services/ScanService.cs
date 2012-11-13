@@ -16,8 +16,6 @@ namespace HandBrake.ApplicationServices.Services
     using System.Threading;
     using System.Windows.Forms;
 
-    using Caliburn.Micro;
-
     using HandBrake.ApplicationServices.EventArgs;
     using HandBrake.ApplicationServices.Exceptions;
     using HandBrake.ApplicationServices.Parsing;
@@ -57,6 +55,11 @@ namespace HandBrake.ApplicationServices.Services
         /// The Process belonging to the CLI
         /// </summary>
         private Process hbProc;
+
+        /// <summary>
+        /// The stop scan.
+        /// </summary>
+        private bool cancelScan;
 
         #endregion
 
@@ -158,6 +161,8 @@ namespace HandBrake.ApplicationServices.Services
                     this.readData.OnScanProgress -= this.OnScanProgress;
                 }
 
+                cancelScan = true;
+
                 if (this.hbProc != null && !this.hbProc.HasExited)
                 {
                     this.hbProc.Kill();
@@ -181,7 +186,7 @@ namespace HandBrake.ApplicationServices.Services
             {
                 StreamReader parseLog = new StreamReader(path);
                 this.readData = new Parser(parseLog.BaseStream);
-                this.SouceData = Source.Parse(this.readData, this.userSettingService);
+                this.SouceData = Source.Parse(this.readData, this.userSettingService.GetUserSetting<bool>(ASUserSettingConstants.DisableLibDvdNav));
                 this.SouceData.ScanPath = path;
 
                 if (this.ScanCompleted != null)
@@ -194,6 +199,15 @@ namespace HandBrake.ApplicationServices.Services
                 throw new GeneralApplicationException("Debug Run Failed", string.Empty, e);
             }
         }
+
+        /// <summary>
+        /// Shutdown the service.
+        /// </summary>
+        public void Shutdown()
+        {
+            // Nothing to do for this implementation.
+        }
+
         #endregion
 
         #region Private Methods
@@ -218,6 +232,8 @@ namespace HandBrake.ApplicationServices.Services
             try
             {
                 this.IsScanning = true;
+                this.cancelScan = false;
+
                 if (this.ScanStared != null)
                 {
                     this.ScanStared(this, new EventArgs());
@@ -230,7 +246,7 @@ namespace HandBrake.ApplicationServices.Services
                                 "\\HandBrake\\logs";
                 string dvdInfoPath = Path.Combine(
                     logDir,
-                    string.Format("last_scan_log{0}.txt", GeneralUtilities.GetInstanceCount));
+                    string.Format("last_scan_log{0}.txt", GeneralUtilities.ProcessId));
 
                 if (!Directory.Exists(logDir))
                 {
@@ -285,7 +301,7 @@ namespace HandBrake.ApplicationServices.Services
 
                 this.readData = new Parser(this.hbProc.StandardError.BaseStream);
                 this.readData.OnScanProgress += this.OnScanProgress;
-                this.SouceData = Source.Parse(this.readData, this.userSettingService);
+                this.SouceData = Source.Parse(this.readData, this.userSettingService.GetUserSetting<bool>(ASUserSettingConstants.DisableLibDvdNav));
                 this.SouceData.ScanPath = (string)sourcePath;
 
                 // Write the Buffer out to file.
@@ -303,8 +319,8 @@ namespace HandBrake.ApplicationServices.Services
                     }
                     else
                     {
-                        throw new Exception(
-                            "The Log file has not been written to disk as it has grown above the 100MB limit. This indicates there was a problem during the scan process.");
+                        throw new GeneralApplicationException(
+                            "The Log file has not been written to disk as it has grown above the 50MB limit", " This indicates there was a problem during the scan process.", null);
                     }
                 }
 
@@ -314,14 +330,18 @@ namespace HandBrake.ApplicationServices.Services
                 if (postScanAction != null)
                 {
                     postScanAction(true);
-                } 
+                }
                 else
                 {
                     if (this.ScanCompleted != null)
                     {
-                        this.ScanCompleted(this, new ScanCompletedEventArgs(true, null, string.Empty));
+                        this.ScanCompleted(this, new ScanCompletedEventArgs(!this.cancelScan, null, string.Empty));
                     }
                 }
+            }
+            catch (GeneralApplicationException)
+            {
+                throw;
             }
             catch (Exception exc)
             {
@@ -340,7 +360,7 @@ namespace HandBrake.ApplicationServices.Services
                 }
             }
         }
-        
+
         /// <summary>
         /// Fire an event when the scan process progresses
         /// </summary>

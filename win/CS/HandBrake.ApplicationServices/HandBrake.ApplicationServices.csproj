@@ -20,12 +20,12 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
     <PlatformTarget>x86</PlatformTarget>
-    <OutputPath>bin\x86\Debug\</OutputPath>
+    <OutputPath>bin\Debug\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
     <PlatformTarget>x86</PlatformTarget>
-    <OutputPath>bin\x86\Release\</OutputPath>
+    <OutputPath>bin\Release\</OutputPath>
     <Optimize>true</Optimize>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <DebugType>pdbonly</DebugType>
@@ -33,12 +33,12 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
     <PlatformTarget>x64</PlatformTarget>
-    <OutputPath>bin\x64\Debug\</OutputPath>
+    <OutputPath>bin\Debug\</OutputPath>
     <DefineConstants>TRACE;DEBUG</DefineConstants>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
     <PlatformTarget>x64</PlatformTarget>
-    <OutputPath>bin\x64\Release\</OutputPath>
+    <OutputPath>bin\Release\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <Optimize>true</Optimize>
     <DebugType>pdbonly</DebugType>
@@ -57,22 +57,7 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\libraries\caliburn\Castle.Windsor.dll</HintPath>
     </Reference>
-    <Reference Include="Growl.Connector, Version=2.0.0.0, Culture=neutral, PublicKeyToken=980c2339411be384, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\libraries\Growl.Connector.dll</HintPath>
-    </Reference>
-    <Reference Include="Growl.CoreLibrary, Version=2.0.0.0, Culture=neutral, PublicKeyToken=13e59d82e007b064, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\libraries\Growl.CoreLibrary.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.WindowsAPICodePack, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\libraries\Microsoft.WindowsAPICodePack.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.WindowsAPICodePack.Shell, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\libraries\Microsoft.WindowsAPICodePack.Shell.dll</HintPath>
-    </Reference>
+    <Reference Include="Microsoft.CSharp" />
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
     <Reference Include="System" />
@@ -105,13 +90,20 @@
     <Compile Include="EventArgs\ScanCompletedEventArgs.cs" />
     <Compile Include="EventArgs\ScanProgressEventArgs.cs" />
     <Compile Include="Extensions\StringExtensions.cs" />
+    <Compile Include="Factories\PlistPresetFactory.cs" />
+    <Compile Include="Isolation\BackgroundServiceConnector.cs" />
+    <Compile Include="Isolation\IsolatedEncodeService.cs" />
+    <Compile Include="Isolation\IsolatedScanService.cs" />
+    <Compile Include="Services\Interfaces\IEncodeServiceWrapper.cs" />
     <Compile Include="Services\Interfaces\IHbServiceCallback.cs" />
+    <Compile Include="Services\Interfaces\IScanServiceWrapper.cs" />
     <Compile Include="Services\Interfaces\IServerService.cs" />
     <Compile Include="Services\ServerService.cs" />
     <Compile Include="Utilities\Converters.cs" />
     <Compile Include="Utilities\EnumHelper.cs" />
-    <Compile Include="Utilities\GrowlCommunicator.cs" />
     <Compile Include="Utilities\InteropModelCreator.cs" />
+    <Compile Include="Utilities\PList.cs" />
+    <Compile Include="Utilities\PlistUtility.cs" />
     <Compile Include="Utilities\SystemInfo.cs" />
     <Compile Include="Utilities\Win32.cs" />
     <Compile Include="Utilities\Win7.cs" />
@@ -145,7 +137,6 @@
     <Compile Include="Services\Base\EncodeBase.cs" />
     <Compile Include="Services\Encode.cs" />
     <Compile Include="Services\Interfaces\IEncode.cs" />
-    <Compile Include="Services\Interfaces\IQueueManager.cs" />
     <Compile Include="Services\Interfaces\IQueueProcessor.cs" />
     <Compile Include="Services\Interfaces\IScan.cs" />
     <Compile Include="Services\Interfaces\IPresetService.cs" />
@@ -153,7 +144,6 @@
     <Compile Include="Services\LibEncode.cs" />
     <Compile Include="Services\LibScan.cs" />
     <Compile Include="Services\PresetService.cs" />
-    <Compile Include="Services\QueueManager.cs" />
     <Compile Include="Services\QueueProcessor.cs" />
     <Compile Include="Services\ScanService.cs" />
     <Compile Include="Services\UserSettingService.cs" />
@@ -162,7 +152,6 @@
     <Compile Include="Utilities\CharCodesUtilities.cs" />
     <Compile Include="Utilities\GeneralUtilities.cs" />
     <Compile Include="Utilities\LanguageUtilities.cs" />
-    <Compile Include="Utilities\PlistUtility.cs" />
     <Compile Include="Utilities\QueryGeneratorUtility.cs" />
     <Compile Include="Utilities\QueryParserUtility.cs" />
   </ItemGroup>
@@ -185,7 +174,6 @@
     <ProjectReference Include="..\HandBrake.Interop\HandBrakeInterop\HandBrakeInterop.csproj">
       <Project>{F0A61F62-2C3B-4A87-AFF4-0C4256253DA1}</Project>
       <Name>HandBrakeInterop</Name>
-      <EmbedInteropTypes>False</EmbedInteropTypes>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

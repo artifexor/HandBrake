@@ -12,6 +12,7 @@ namespace HandBrake.ApplicationServices.Services
     using System;
     using System.Diagnostics;
 
+    using HandBrake.ApplicationServices.Exceptions;
     using HandBrake.ApplicationServices.Model;
     using HandBrake.ApplicationServices.Services.Base;
     using HandBrake.ApplicationServices.Services.Interfaces;
@@ -78,8 +79,6 @@ namespace HandBrake.ApplicationServices.Services
 
             HandBrakeUtils.MessageLogged += this.HandBrakeInstanceMessageLogged;
             HandBrakeUtils.ErrorLogged += this.HandBrakeInstanceErrorLogged;
-
-            GrowlCommunicator.Register();
         }
 
         /// <summary>
@@ -159,11 +158,11 @@ namespace HandBrake.ApplicationServices.Services
                 }
 
                 // Fire the Encode Started Event
-                this.Invoke_encodeStarted(EventArgs.Empty);
+                this.InvokeEncodeStarted(EventArgs.Empty);
             }
             catch (Exception exc)
             {
-                this.Invoke_encodeCompleted(new EncodeCompletedEventArgs(false, exc, "An Error has occured in EncodeService.Run()"));
+                this.InvokeEncodeCompleted(new EncodeCompletedEventArgs(false, exc, "An Error has occured."));
             }
         }
 
@@ -184,22 +183,28 @@ namespace HandBrake.ApplicationServices.Services
         /// </param>
         public override void Stop(Exception exc)
         {
-            this.instance.StopEncode();
+            try
+            {
+                this.IsEncoding = false;
+                this.instance.StopEncode();
+            } 
+            catch(Exception)
+            {
+                // Do Nothing.
+            }
 
-            this.Invoke_encodeCompleted(
+            this.InvokeEncodeCompleted(
                 exc == null
                     ? new EncodeCompletedEventArgs(true, null, string.Empty)
                     : new EncodeCompletedEventArgs(false, exc, "An Error has occured."));
         }
 
         /// <summary>
-        /// Attempt to Safely kill a DirectRun() CLI
-        /// NOTE: This will not work with a MinGW CLI
-        /// Note: http://www.cygwin.com/ml/cygwin/2006-03/msg00330.html
+        /// Shutdown the service.
         /// </summary>
-        public void SafelyStop()
+        public void Shutdown()
         {
-            throw new NotImplementedException("This Method is not used in the LibEncode service. You should use the Stop() method instead! ");
+            // Nothing to do for this implementation.
         }
 
         #region HandBrakeInstance Event Handlers.
@@ -264,7 +269,7 @@ namespace HandBrake.ApplicationServices.Services
                 ElapsedTime = DateTime.Now - this.startTime,
             };
 
-            this.Invoke_encodeStatusChanged(args);
+            this.InvokeEncodeStatusChanged(args);
 
             if (this.WindowsSeven.IsWindowsSeven)
             {
@@ -288,7 +293,7 @@ namespace HandBrake.ApplicationServices.Services
         {
             this.IsEncoding = false;
 
-            this.Invoke_encodeCompleted(
+            this.InvokeEncodeCompleted(
                 e.Error
                     ? new EncodeCompletedEventArgs(false, null, string.Empty)
                     : new EncodeCompletedEventArgs(true, null, string.Empty));

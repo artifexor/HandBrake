@@ -25,6 +25,7 @@ extern NSString *HBTitleChangedNotification;
 extern NSString *keyTitleTag;
 
 @class HBOutputPanelController;
+@class DockTextField;
 
 /* We subclass NSView so that our drags show both the icon as well as PresetName columns */
 @interface HBPresetsOutlineView : NSOutlineView
@@ -256,7 +257,13 @@ BOOL                        fIsDragging;
 	NSString                      * currentSource;
     NSString                      * browsedSourceDisplayName;
     
-    double                         dockIconProgress;
+    /* Dock progress variables */
+    double                          dockIconProgress;
+    
+    BOOL                            fWillScan;
+    NSDockTile                    * dockTile;
+    DockTextField                 * percentField;
+    DockTextField                 * timeField;
 }
 - (int) getPidnum;
 - (IBAction) showAboutPanel:(id)sender;
@@ -441,5 +448,12 @@ BOOL                        fIsDragging;
 + (unsigned int) maximumNumberOfAllowedAudioTracks;
 - (IBAction) addAllAudioTracks: (id) sender;
 
+// Drag & Drop methods
+- (void)openFiles:(NSArray*)filenames;
+- (void)application:(NSApplication *)sender openFiles:(NSArray *)filenames;
+- (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender;
+- (BOOL)performDragOperation:(id <NSDraggingInfo>)sender;
+
+- (void) updateDockIcon:(double)progress withETA:(NSString*)etaStr;
 @end
 

@@ -55,7 +55,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
     <DebugSymbols>true</DebugSymbols>
-    <OutputPath>bin\x64\Debug\</OutputPath>
+    <OutputPath>bin\Debug\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <DebugType>full</DebugType>
     <PlatformTarget>x64</PlatformTarget>
@@ -87,6 +87,14 @@
     <Reference Include="GongSolutions.Wpf.DragDrop">
       <HintPath>..\libraries\WPFDragDrop\GongSolutions.Wpf.DragDrop.dll</HintPath>
     </Reference>
+    <Reference Include="Growl.Connector, Version=2.0.0.0, Culture=neutral, PublicKeyToken=980c2339411be384, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\libraries\Growl.Connector.dll</HintPath>
+    </Reference>
+    <Reference Include="Growl.CoreLibrary, Version=2.0.0.0, Culture=neutral, PublicKeyToken=13e59d82e007b064, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\libraries\Growl.CoreLibrary.dll</HintPath>
+    </Reference>
     <Reference Include="Ookii.Dialogs.Wpf">
       <HintPath>..\libraries\OokiiDialogs\Ookii.Dialogs.Wpf.dll</HintPath>
     </Reference>
@@ -113,6 +121,7 @@
       <SubType>Designer</SubType>
     </ApplicationDefinition>
     <Compile Include="AttachedProperties\MenuItemExtensions.cs" />
+    <Compile Include="Commands\CancelScanCommand.cs" />
     <Compile Include="Commands\ProcessShortcutCommand.cs" />
     <Compile Include="Commands\SourceMenuCommand.cs" />
     <Compile Include="Controls\Loading.xaml.cs">
@@ -128,18 +137,18 @@
     <Compile Include="Converters\Options\OptionsTabConverter.cs" />
     <Compile Include="Converters\Subtitles\SubtitlesQueueDisplayConverter.cs" />
     <Compile Include="Converters\Video\VideoEncoderConverter.cs" />
-    <Compile Include="Isolation\BackgroundServiceConnector.cs" />
-    <Compile Include="Isolation\IsolatedEncodeService.cs" />
-    <Compile Include="Isolation\Interfaces\IIsolatedEncodeService.cs" />
-    <Compile Include="Isolation\Interfaces\IIsolatedScanService.cs" />
-    <Compile Include="Isolation\IsolatedScanService.cs" />
+    <Compile Include="Helpers\GrowlCommunicator.cs" />
     <Compile Include="Services\DriveDetectService.cs" />
+    <Compile Include="Services\EncodeServiceWrapper.cs" />
     <Compile Include="Services\Interfaces\IDriveDetectService.cs" />
     <Compile Include="Model\ShellWindow.cs" />
     <Compile Include="Model\SourceMenuItem.cs" />
     <Compile Include="Model\UpdateCheckInformation.cs" />
     <Compile Include="Model\DownloadStatus.cs" />
+    <Compile Include="Services\Interfaces\INotificationService.cs" />
     <Compile Include="Services\Interfaces\IUpdateService.cs" />
+    <Compile Include="Services\NotificationService.cs" />
+    <Compile Include="Services\ScanServiceWrapper.cs" />
     <Compile Include="Services\UpdateService.cs" />
     <Compile Include="Views\ShellView.xaml.cs">
       <DependentUpon>ShellView.xaml</DependentUpon>
@@ -368,21 +377,20 @@
     <Content Include="defaultsettings.xml">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
+    <Resource Include="Views\Images\add.png" />
+    <Resource Include="Views\Images\remove.png" />
+    <Resource Include="Views\Images\information.png" />
+    <Resource Include="Views\Images\picture_small.png" />
+    <None Include="Resources\logo64.png" />
+    <Resource Include="Views\Images\warningsmall.png" />
     <Resource Include="Views\Images\Refresh.ico" />
-    <Resource Include="Views\Images\WarningSmall.png" />
     <Resource Include="Views\Images\Complete.png" />
     <Resource Include="Views\Images\Working0.png" />
     <Resource Include="handbrakepineapple.ico" />
     <Resource Include="Views\Images\delete.png" />
     <Resource Include="Views\Images\Close.png" />
-    <Resource Include="Views\Images\Help24.png" />
-    <Resource Include="Views\Images\Help32.png" />
     <Resource Include="Views\Images\Add16.png" />
     <Resource Include="Views\Images\Options24.png" />
-    <Resource Include="Views\Images\arrow_down.png" />
-    <Resource Include="Views\Images\arrow_left.png" />
-    <Resource Include="Views\Images\arrow_right.png" />
-    <Resource Include="Views\Images\arrow_up.png" />
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Views\Images\ActivityWindow.png" />
@@ -396,7 +404,6 @@
     <Resource Include="Views\Images\Queue.png" />
     <Resource Include="Views\Images\Queue_Small.png" />
     <Resource Include="Views\Images\stop.png" />
-    <Resource Include="Views\Images\save.png" />
     <Resource Include="Views\Images\Play_small.png" />
     <Resource Include="Views\Images\Play.png" />
     <Resource Include="Views\Images\picture.png" />
@@ -404,14 +411,9 @@
     <Resource Include="Views\Images\Movies.png" />
     <Resource Include="Views\Images\logo64.png" />
     <Resource Include="Views\Images\logo128.png" />
-    <Resource Include="Views\Images\info16.png" />
-    <Resource Include="Views\Images\Help16.png" />
-    <Resource Include="Views\Images\hb32.png" />
-    <Resource Include="Views\Images\hb16.png" />
     <Resource Include="Views\Images\Preferences.png" />
     <Resource Include="Views\Images\folder.png" />
     <Resource Include="Views\Images\ErrorX.png" />
-    <Resource Include="Views\Images\download.png" />
     <Resource Include="Views\Images\AddToQueue_small.png" />
     <Resource Include="Views\Images\AddToQueue.png" />
     <Resource Include="Views\Images\window.png" />

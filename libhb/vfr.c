@@ -355,6 +355,8 @@ static int hb_vfr_init( hb_filter_object_t * filter,
             init->vrate = pv->vrate;
             init->vrate_base = pv->vrate_base;
         }
+        init->pfr_vrate = pv->vrate;
+        init->pfr_vrate_base = pv->vrate_base;
     }
     else
     {
@@ -538,6 +540,14 @@ static int hb_vfr_work( hb_filter_object_t * filter,
         pv->lost_time[3] += ( temp_duration - 3 * (temp_duration / 4) );
 
         pv->total_lost_time += temp_duration;
+    }
+    else if ( in->s.stop <= pv->last_stop[0] )
+    {
+        // This is generally an error somewhere (bad source or hb bug).
+        // But lets do our best to straighten out the mess.
+        ++pv->drops;
+        hb_buffer_close(&in);
+        return HB_FILTER_OK;
     }
 
     /* Cache frame start and stop times, so we can renumber

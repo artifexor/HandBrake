@@ -280,11 +280,6 @@ namespace HandBrakeWPF.ViewModels
         private string sendFileToPath;
 
         /// <summary>
-        /// The show cli window.
-        /// </summary>
-        private bool showCliWindow;
-
-        /// <summary>
         /// The vlc path.
         /// </summary>
         private string vlcPath;
@@ -354,6 +349,11 @@ namespace HandBrakeWPF.ViewModels
         /// </summary>
         private bool enableDebugFeatures;
 
+        /// <summary>
+        /// Backing field for EnableLibHb
+        /// </summary>
+        private bool enableLibHb;
+
         #endregion
 
         #region Constructors and Destructors
@@ -393,7 +393,7 @@ namespace HandBrakeWPF.ViewModels
         {
             get
             {
-                return new List<string> { "General", "Output Files", "Language", "Advanced", "Updates" };
+                return new List<string> { "General", "Output Files", "Audio and Subtitles", "Advanced", "Updates" };
             }
         }
 
@@ -781,7 +781,7 @@ namespace HandBrakeWPF.ViewModels
             set
             {
                 this.preferredLanguages = value;
-                this.NotifyOfPropertyChange("preferredLanguages");
+                this.NotifyOfPropertyChange("PreferredLanguages");
             }
         }
 
@@ -1294,23 +1294,6 @@ namespace HandBrakeWPF.ViewModels
         }
 
         /// <summary>
-        /// Gets or sets a value indicating whether ShowCliWindow.
-        /// </summary>
-        public bool ShowCliWindow
-        {
-            get
-            {
-                return this.showCliWindow;
-            }
-
-            set
-            {
-                this.showCliWindow = value;
-                this.NotifyOfPropertyChange("ShowCliWindow");
-            }
-        }
-
-        /// <summary>
         /// Gets or sets a value indicating whether ClearQueueOnEncodeCompleted.
         /// </summary>
         public bool ClearQueueOnEncodeCompleted
@@ -1371,6 +1354,22 @@ namespace HandBrakeWPF.ViewModels
             {
                 this.enableDebugFeatures = value;
                 this.NotifyOfPropertyChange(() => this.EnableDebugFeatures);
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether enable lib hb.
+        /// </summary>
+        public bool EnableLibHb
+        {
+            get
+            {
+                return this.enableLibHb;
+            }
+            set
+            {
+                this.enableLibHb = value;
+                this.NotifyOfPropertyChange(() => this.EnableLibHb);
             }
         }
 
@@ -1500,8 +1499,8 @@ namespace HandBrakeWPF.ViewModels
             this.whenDoneOptions.Add("Quit HandBrake");
             this.WhenDone = userSettingService.GetUserSetting<string>("WhenCompleteAction");
 
-            this.GrowlAfterEncode = userSettingService.GetUserSetting<bool>(ASUserSettingConstants.GrowlEncode);
-            this.GrowlAfterQueue = userSettingService.GetUserSetting<bool>(ASUserSettingConstants.GrowlQueue);
+            this.GrowlAfterEncode = userSettingService.GetUserSetting<bool>(UserSettingConstants.GrowlEncode);
+            this.GrowlAfterQueue = userSettingService.GetUserSetting<bool>(UserSettingConstants.GrowlQueue);
             this.SendFileAfterEncode = this.userSettingService.GetUserSetting<bool>(ASUserSettingConstants.SendFile);
             this.SendFileTo = Path.GetFileNameWithoutExtension(this.userSettingService.GetUserSetting<string>(ASUserSettingConstants.SendFileTo)) ?? string.Empty;
             this.SendFileToPath = this.userSettingService.GetUserSetting<string>(ASUserSettingConstants.SendFileTo) ?? string.Empty;
@@ -1580,16 +1579,16 @@ namespace HandBrakeWPF.ViewModels
 
             this.AddAudioModeOptions.Clear();
             this.AddAudioModeOptions.Add("None");
-            this.AddAudioModeOptions.Add("All Remaining Tracks");
-            this.AddAudioModeOptions.Add("All for Selected Languages");
+            this.AddAudioModeOptions.Add("Add All Remaining Tracks");
+            this.AddAudioModeOptions.Add("Add All for Selected Languages");
 
             this.AddSubtitleModeOptions.Clear();
             this.AddSubtitleModeOptions.Add("None");
-            this.AddSubtitleModeOptions.Add("All");
-            this.AddSubtitleModeOptions.Add("First");
-            this.AddSubtitleModeOptions.Add("Selected");
-            this.AddSubtitleModeOptions.Add("Prefered Only (First)");
-            this.AddSubtitleModeOptions.Add("Prefered Only (All)");
+            this.AddSubtitleModeOptions.Add("Add All (Where possible)");
+            this.AddSubtitleModeOptions.Add("Add First");
+            this.AddSubtitleModeOptions.Add("Add all for Selected Languages");
+            this.AddSubtitleModeOptions.Add("Add only for Prefered Language (First)");
+            this.AddSubtitleModeOptions.Add("Add all for Prefered Language");
 
             this.SelectedAddAudioMode = this.userSettingService.GetUserSetting<int>(UserSettingConstants.DubModeAudio);
             this.SelectedAddSubtitleMode = this.userSettingService.GetUserSetting<int>(UserSettingConstants.DubModeSubtitle);
@@ -1605,7 +1604,6 @@ namespace HandBrakeWPF.ViewModels
 
             // Priority level for encodes
             this.priorityLevelOptions.Clear();
-            this.priorityLevelOptions.Add("Realtime");
             this.priorityLevelOptions.Add("High");
             this.priorityLevelOptions.Add("Above Normal");
             this.priorityLevelOptions.Add("Normal");
@@ -1639,7 +1637,6 @@ namespace HandBrakeWPF.ViewModels
             this.DisplayStatusMessagesTrayIcon = this.userSettingService.GetUserSetting<bool>(UserSettingConstants.TrayIconAlerts);
             this.MinimiseToTray = this.userSettingService.GetUserSetting<bool>(UserSettingConstants.MainWindowMinimize);
             this.DisablePresetUpdateCheckNotification = this.userSettingService.GetUserSetting<bool>(UserSettingConstants.PresetNotification);
-            this.ShowCliWindow = userSettingService.GetUserSetting<bool>(ASUserSettingConstants.ShowCLI);
             this.ClearQueueOnEncodeCompleted = userSettingService.GetUserSetting<bool>(ASUserSettingConstants.ClearCompletedFromQueue);
 
             // Set the preview count
@@ -1657,7 +1654,7 @@ namespace HandBrakeWPF.ViewModels
             this.ConstantQualityGranularity.Add("0.50");
             this.ConstantQualityGranularity.Add("0.25");
             this.ConstantQualityGranularity.Add("0.20");
-            this.SelectedGranulairty = userSettingService.GetUserSetting<double>(ASUserSettingConstants.X264Step).ToString("0.00", CultureInfo.InvariantCulture);
+            this.SelectedGranulairty = userSettingService.GetUserSetting<double>(UserSettingConstants.X264Step).ToString("0.00", CultureInfo.InvariantCulture);
 
             // Min Title Length
             this.MinLength = this.userSettingService.GetUserSetting<int>(ASUserSettingConstants.MinScanDuration);
@@ -1670,6 +1667,7 @@ namespace HandBrakeWPF.ViewModels
             this.ServerPort = port;
             this.EnableProcessIsolation = userSettingService.GetUserSetting<bool>(UserSettingConstants.EnableProcessIsolation);
             this.EnableDebugFeatures = userSettingService.GetUserSetting<bool>(UserSettingConstants.EnableDebugFeatures);
+            this.EnableLibHb = userSettingService.GetUserSetting<bool>(UserSettingConstants.EnableLibHb);
         }
 
         /// <summary>
@@ -1830,8 +1828,8 @@ namespace HandBrakeWPF.ViewModels
             this.userSettingService.SetUserSetting(UserSettingConstants.DaysBetweenUpdateCheck, this.CheckForUpdatesFrequency);
             this.userSettingService.SetUserSetting(UserSettingConstants.TooltipEnable, this.EnableGuiTooltips);
             this.userSettingService.SetUserSetting(ASUserSettingConstants.WhenCompleteAction, this.WhenDone);
-            this.userSettingService.SetUserSetting(ASUserSettingConstants.GrowlQueue, this.GrowlAfterQueue);
-            this.userSettingService.SetUserSetting(ASUserSettingConstants.GrowlEncode, this.GrowlAfterEncode);
+            this.userSettingService.SetUserSetting(UserSettingConstants.GrowlQueue, this.GrowlAfterQueue);
+            this.userSettingService.SetUserSetting(UserSettingConstants.GrowlEncode, this.GrowlAfterEncode);
             this.userSettingService.SetUserSetting(ASUserSettingConstants.SendFileTo, this.SendFileToPath);
             this.userSettingService.SetUserSetting(ASUserSettingConstants.SendFile, this.SendFileAfterEncode);
             this.userSettingService.SetUserSetting(ASUserSettingConstants.SendFileToArgs, this.Arguments);
@@ -1872,10 +1870,9 @@ namespace HandBrakeWPF.ViewModels
             userSettingService.SetUserSetting(UserSettingConstants.MainWindowMinimize, this.MinimiseToTray);
             userSettingService.SetUserSetting(UserSettingConstants.TrayIconAlerts, this.DisplayStatusMessagesTrayIcon);
             userSettingService.SetUserSetting(UserSettingConstants.PresetNotification, this.DisablePresetUpdateCheckNotification);
-            userSettingService.SetUserSetting(ASUserSettingConstants.ShowCLI, this.ShowCliWindow);
             userSettingService.SetUserSetting(ASUserSettingConstants.ClearCompletedFromQueue, this.ClearQueueOnEncodeCompleted);
             userSettingService.SetUserSetting(ASUserSettingConstants.PreviewScanCount, this.SelectedPreviewCount);
-            userSettingService.SetUserSetting(ASUserSettingConstants.X264Step, double.Parse(this.SelectedGranulairty, CultureInfo.InvariantCulture));
+            userSettingService.SetUserSetting(UserSettingConstants.X264Step, double.Parse(this.SelectedGranulairty, CultureInfo.InvariantCulture));
 
             int value;
             if (int.TryParse(this.MinLength.ToString(), out value))
@@ -1887,6 +1884,7 @@ namespace HandBrakeWPF.ViewModels
             userSettingService.SetUserSetting(UserSettingConstants.EnableProcessIsolation, this.EnableProcessIsolation);
             userSettingService.SetUserSetting(UserSettingConstants.ServerPort, this.ServerPort.ToString());
             userSettingService.SetUserSetting(UserSettingConstants.EnableDebugFeatures, this.EnableDebugFeatures);
+            userSettingService.SetUserSetting(UserSettingConstants.EnableLibHb, this.EnableLibHb);
         }
 
         /// <summary>

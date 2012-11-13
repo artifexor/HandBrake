@@ -11,6 +11,7 @@ namespace HandBrake.Interop
 {
 	using System;
 	using System.Collections.Generic;
+	using System.Globalization;
 	using System.IO;
 	using System.Linq;
 	using System.Runtime.InteropServices;
@@ -251,7 +252,7 @@ namespace HandBrake.Interop
 			IntPtr nativeBuffer = Marshal.AllocHGlobal(imageBufferSize);
 			allocatedMemory.Add(nativeBuffer);
 			HBFunctions.hb_set_job(this.hbHandle, job.Title, ref nativeJob);
-            HBFunctions.hb_get_preview(this.hbHandle, ref title, previewNumber, nativeBuffer);
+			HBFunctions.hb_get_preview(this.hbHandle, ref title, previewNumber, nativeBuffer);
 
 			// Copy the filled image buffer to a managed array.
 			byte[] managedBuffer = new byte[imageBufferSize];
@@ -460,6 +461,12 @@ namespace HandBrake.Interop
 				this.encodeAllocatedMemory.Add(nativeJob.x264_tune);
 			}
 
+			if (!string.IsNullOrEmpty(job.EncodingProfile.H264Level))
+			{
+				nativeJob.h264_level = Marshal.StringToHGlobalAnsi(job.EncodingProfile.H264Level);
+				this.encodeAllocatedMemory.Add(nativeJob.h264_level);
+			}
+
 			if (this.subtitleScan)
 			{
 				// If we need to scan subtitles, enqueue a pre-processing job to do that.
@@ -591,9 +598,7 @@ namespace HandBrake.Interop
 			int refHeight = 0;
 			int refParWidth = 0;
 			int refParHeight = 0;
-			HBFunctions.hb_set_job(this.hbHandle, job.Title, ref nativeJob);
-			//HBFunctions.hb_set_anamorphic_size_by_index(this.hbHandle, job.Title, ref refWidth, ref refHeight, ref refParWidth, ref refParHeight);
-            HBFunctions.hb_set_anamorphic_size(ref nativeJob, ref refWidth, ref refHeight, ref refParWidth, ref refParHeight);
+			HBFunctions.hb_set_anamorphic_size(ref nativeJob, ref refWidth, ref refHeight, ref refParWidth, ref refParHeight);
 			InteropUtilities.FreeMemory(allocatedMemory);
 
 			width = refWidth;
@@ -988,36 +993,12 @@ namespace HandBrake.Interop
 			nativeJob.crop[2] = crop.Left;
 			nativeJob.crop[3] = crop.Right;
 
-			if (profile.Deinterlace != Deinterlace.Off)
-			{
-				nativeJob.deinterlace = 1;
-				string settings = null;
+			var filterList = new List<IntPtr>();
 
-				switch (profile.Deinterlace)
-				{
-					case Deinterlace.Fast:
-						settings = "-1";
-						break;
-					case Deinterlace.Slow:
-						settings = "2";
-						break;
-					case Deinterlace.Slower:
-						settings = "0";
-						break;
-					case Deinterlace.Custom:
-						settings = profile.CustomDeinterlace;
-						break;
-					default:
-						break;
-				}
+			// FILTERS: These must be added in the correct order since we cannot depend on the automatic ordering in hb_add_filter . Ordering is determined
+			// by the order they show up in the filters enum.
 
-                this.AddFilter(nativeJob, NativeConstants.HB_FILTER_DEINTERLACE, settings, allocatedMemory);
-			}
-			else
-			{
-				nativeJob.deinterlace = 0;
-			}
-
+			// Detelecine
 			if (profile.Detelecine != Detelecine.Off)
 			{
 				string settings = null;
@@ -1026,25 +1007,111 @@ namespace HandBrake.Interop
 					settings = profile.CustomDetelecine;
 				}
 
-				this.AddFilter(nativeJob, NativeConstants.HB_FILTER_DETELECINE, settings, allocatedMemory);
+				this.AddFilter(filterList, (int)hb_filter_ids.HB_FILTER_DETELECINE, settings, allocatedMemory);
 			}
 
+			// Decomb
 			if (profile.Decomb != Decomb.Off)
 			{
 				string settings = null;
-				if (profile.Decomb == Decomb.Custom)
+				switch (profile.Decomb)
 				{
-					settings = profile.CustomDecomb;
+					case Decomb.Default:
+						break;
+					case Decomb.Fast:
+						settings = "7:2:6:9:1:80";
+						break;
+					case Decomb.Bob:
+						settings = "455";
+						break;
+					case Decomb.Custom:
+						settings = profile.CustomDecomb;
+						break;
+					default:
+						break;
 				}
 
-                this.AddFilter(nativeJob, NativeConstants.HB_FILTER_DECOMB, settings, allocatedMemory);
+				this.AddFilter(filterList, (int)hb_filter_ids.HB_FILTER_DECOMB, settings, allocatedMemory);
 			}
 
+			// Deinterlace
+			if (profile.Deinterlace != Deinterlace.Off)
+			{
+				nativeJob.deinterlace = 1;
+				string settings = null;
+
+				switch (profile.Deinterlace)
+				{
+					case Deinterlace.Fast:
+						settings = "0";
+						break;
+					case Deinterlace.Slow:
+						settings = "1";
+						break;
+					case Deinterlace.Slower:
+						settings = "3";
+						break;
+					case Deinterlace.Bob:
+						settings = "15";
+						break;
+					case Deinterlace.Custom:
+						settings = profile.CustomDeinterlace;
+						break;
+					default:
+						break;
+				}
+
+				this.AddFilter(filterList, (int)hb_filter_ids.HB_FILTER_DEINTERLACE, settings, allocatedMemory);
+			}
+			else
+			{
+				nativeJob.deinterlace = 0;
+			}
+
+			// VFR
+			if (profile.Framerate == 0)
+			{
+				if (profile.ConstantFramerate)
+				{
+					// CFR with "Same as Source". Use the title rate
+					nativeJob.cfr = 1;
+					nativeJob.vrate = originalTitle.rate;
+					nativeJob.vrate_base = originalTitle.rate_base;
+				}
+				else
+				{
+					// Pure VFR "Same as Source"
+					nativeJob.cfr = 0;
+				}
+			}
+			else
+			{
+				// Specified framerate
+				if (profile.ConstantFramerate)
+				{
+					// Mark as pure CFR
+					nativeJob.cfr = 1;
+				}
+				else
+				{
+					// Mark as peak framerate
+					nativeJob.cfr = 2;
+				}
+
+				nativeJob.vrate = 27000000;
+				nativeJob.vrate_base = Converters.FramerateToVrate(profile.Framerate);
+			}
+
+			string vfrSettings = string.Format(CultureInfo.InvariantCulture, "{0}:{1}:{2}", nativeJob.cfr, nativeJob.vrate, nativeJob.vrate_base);
+			this.AddFilter(filterList, (int) hb_filter_ids.HB_FILTER_VFR, vfrSettings, allocatedMemory);
+
+			// Deblock
 			if (profile.Deblock > 0)
 			{
-                this.AddFilter(nativeJob, NativeConstants.HB_FILTER_DEBLOCK, profile.Deblock.ToString(), allocatedMemory);
+				this.AddFilter(filterList, (int)hb_filter_ids.HB_FILTER_DEBLOCK, profile.Deblock.ToString(CultureInfo.InvariantCulture), allocatedMemory);
 			}
 
+			// Denoise
 			if (profile.Denoise != Denoise.Off)
 			{
 				string settings = null;
@@ -1066,9 +1133,10 @@ namespace HandBrake.Interop
 						break;
 				}
 
-                this.AddFilter(nativeJob, NativeConstants.HB_FILTER_DENOISE, settings, allocatedMemory);
+				this.AddFilter(filterList, (int)hb_filter_ids.HB_FILTER_DENOISE, settings, allocatedMemory);
 			}
 
+			// Crop/scale
 			int width = profile.Width;
 			int height = profile.Height;
 
@@ -1095,6 +1163,11 @@ namespace HandBrake.Interop
 				height = profile.MaxHeight;
 			}
 
+			// The job width can sometimes start not clean, due to interference from
+			// preview generation. We reset it here to allow good calculations.
+			nativeJob.width = width;
+			nativeJob.height = height;
+
 			nativeJob.grayscale = profile.Grayscale ? 1 : 0;
 
 			switch (profile.Anamorphic)
@@ -1107,12 +1180,26 @@ namespace HandBrake.Interop
 					height = outputSize.Height;
 
 					nativeJob.anamorphic.keep_display_aspect = profile.KeepDisplayAspect ? 1 : 0;
+
+					nativeJob.width = width;
+					nativeJob.height = height;
+
+					nativeJob.maxWidth = profile.MaxWidth;
+					nativeJob.maxHeight = profile.MaxHeight;
+
 					break;
 				case Anamorphic.Strict:
 					nativeJob.anamorphic.mode = 1;
 					break;
 				case Anamorphic.Loose:
 					nativeJob.anamorphic.mode = 2;
+
+					nativeJob.modulus = profile.Modulus;
+
+					nativeJob.width = width;
+
+					nativeJob.maxWidth = profile.MaxWidth;
+
 					break;
 				case Anamorphic.Custom:
 					nativeJob.anamorphic.mode = 3;
@@ -1146,10 +1233,12 @@ namespace HandBrake.Interop
 							nativeJob.anamorphic.dar_height = height;
 							nativeJob.anamorphic.keep_display_aspect = 1;
 						}
-
-						nativeJob.anamorphic.dar_width = profile.DisplayWidth;
-						nativeJob.anamorphic.dar_height = height;
-						nativeJob.anamorphic.keep_display_aspect = profile.KeepDisplayAspect ? 1 : 0;
+						else
+						{
+							nativeJob.anamorphic.dar_width = profile.DisplayWidth;
+							nativeJob.anamorphic.dar_height = height;
+							nativeJob.anamorphic.keep_display_aspect = profile.KeepDisplayAspect ? 1 : 0;
+						}
 					}
 					else
 					{
@@ -1158,16 +1247,46 @@ namespace HandBrake.Interop
 						nativeJob.anamorphic.keep_display_aspect = 0;
 					}
 
+					nativeJob.width = width;
+					nativeJob.height = height;
+
+					nativeJob.maxWidth = profile.MaxWidth;
+					nativeJob.maxHeight = profile.MaxHeight;
+
 					break;
 				default:
 					break;
 			}
 
-			nativeJob.width = width;
-			nativeJob.height = height;
+			// Need to fix up values before adding crop/scale filter
+			if (profile.Anamorphic != Anamorphic.None)
+			{
+				int anamorphicWidth = 0, anamorphicHeight = 0, anamorphicParWidth = 0, anamorphicParHeight = 0;
 
-			nativeJob.maxWidth = profile.MaxWidth;
-			nativeJob.maxHeight = profile.MaxHeight;
+				HBFunctions.hb_set_anamorphic_size(ref nativeJob, ref anamorphicWidth, ref anamorphicHeight, ref anamorphicParWidth, ref anamorphicParHeight);
+				nativeJob.width = anamorphicWidth;
+				nativeJob.height = anamorphicHeight;
+				nativeJob.anamorphic.par_width = anamorphicParWidth;
+				nativeJob.anamorphic.par_height = anamorphicParHeight;
+			}
+
+			string cropScaleSettings = string.Format(
+				CultureInfo.InvariantCulture,
+				"{0}:{1}:{2}:{3}:{4}:{5}",
+				nativeJob.width,
+				nativeJob.height,
+				nativeJob.crop[0],
+				nativeJob.crop[1],
+				nativeJob.crop[2],
+				nativeJob.crop[3]);
+			this.AddFilter(filterList, (int) hb_filter_ids.HB_FILTER_CROP_SCALE, cropScaleSettings, allocatedMemory);
+
+			// Construct final filter list
+			NativeList filterListNative = InteropUtilities.CreateIntPtrList(filterList);
+			nativeJob.list_filter = filterListNative.ListPtr;
+			allocatedMemory.AddRange(filterListNative.AllocatedMemory);
+
+
 
 			HBVideoEncoder videoEncoder = Encoders.VideoEncoders.FirstOrDefault(e => e.ShortName == profile.VideoEncoder);
 			if (videoEncoder == null)
@@ -1177,26 +1296,8 @@ namespace HandBrake.Interop
 
 			nativeJob.vcodec = videoEncoder.Id;
 
-			if (profile.Framerate == 0)
-			{
-				nativeJob.cfr = 0;
-			}
-			else
-			{
-				if (profile.PeakFramerate)
-				{
-					nativeJob.cfr = 2;
-				}
-				else
-				{
-					nativeJob.cfr = 1;
-				}
 
-				nativeJob.vrate = 27000000;
-				nativeJob.vrate_base = Converters.FramerateToVrate(profile.Framerate);
-			}
 
-			// vfr
 			// areBframes
 			// color_matrix
 			List<hb_audio_s> titleAudio = InteropUtilities.ConvertList<hb_audio_s>(originalTitle.list_audio);
@@ -1277,7 +1378,7 @@ namespace HandBrake.Interop
 							subtitleConfig.force = sourceSubtitle.Forced ? 1 : 0;
 							subtitleConfig.default_track = sourceSubtitle.Default ? 1 : 0;
 
-							bool supportsBurn = nativeSubtitle.source == hb_subtitle_s_subsource.VOBSUB || nativeSubtitle.source == hb_subtitle_s_subsource.SSASUB;
+							bool supportsBurn = nativeSubtitle.source == hb_subtitle_s_subsource.VOBSUB || nativeSubtitle.source == hb_subtitle_s_subsource.SSASUB || nativeSubtitle.source == hb_subtitle_s_subsource.PGSSUB;
 							if (supportsBurn && sourceSubtitle.BurnedIn)
 							{
 								subtitleConfig.dest = hb_subtitle_config_s_subdest.RENDERSUB;
@@ -1404,24 +1505,22 @@ namespace HandBrake.Interop
 		/// <summary>
 		/// Adds a filter to the given filter list.
 		/// </summary>
-		/// <param name="job">
-		/// The job.
-		/// </param>
-		/// <param name="filterType">
-		/// The type of filter.
-		/// </param>
-		/// <param name="settings">
-		/// Settings for the filter.
-		/// </param>
-		/// <param name="allocatedMemory">
-		/// The list of allocated memory.
-		/// </param>
-		private void AddFilter(hb_job_s job, int filterType, string settings, List<IntPtr> allocatedMemory)
+		/// <param name="filterList">The list to add the filter to.</param>
+		/// <param name="filterType">The type of filter.</param>
+		/// <param name="settings">Settings for the filter.</param>
+		/// <param name="allocatedMemory">The list of allocated memory.</param>
+		private void AddFilter(List<IntPtr> filterList, int filterType, string settings, List<IntPtr> allocatedMemory)
 		{
 			IntPtr settingsNativeString = Marshal.StringToHGlobalAnsi(settings);
-            hb_filter_object_s filter = HBFunctions.hb_filter_init(filterType);
-            HBFunctions.hb_add_filter(ref job, filter, settingsNativeString);
+			hb_filter_object_s filter = InteropUtilities.ReadStructure<hb_filter_object_s>(HBFunctions.hb_filter_init(filterType));
+			filter.settings = settingsNativeString;
+
+			IntPtr filterPtr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(hb_filter_object_s)));
+			Marshal.StructureToPtr(filter, filterPtr, false);
+
+			filterList.Add(filterPtr);
 			allocatedMemory.Add(settingsNativeString);
+			allocatedMemory.Add(filterPtr);
 		}
 
 		/// <summary>
@@ -1555,7 +1654,9 @@ namespace HandBrake.Interop
 				AspectRatio = title.aspect,
 				AngleCount = title.angle_count,
 				VideoCodecName = title.video_codec_name,
-				Framerate = ((double)title.rate) / title.rate_base
+				Framerate = ((double)title.rate) / title.rate_base,
+				FramerateNumerator = title.rate,
+				FramerateDenominator = title.rate_base
 			};
 
 			switch (title.type)
@@ -1613,6 +1714,9 @@ namespace HandBrake.Interop
 						break;
 					case hb_subtitle_s_subsource.VOBSUB:
 						newSubtitle.SubtitleSource = SubtitleSource.VobSub;
+						break;
+					case hb_subtitle_s_subsource.PGSSUB:
+						newSubtitle.SubtitleSource = SubtitleSource.PGS;
 						break;
 					default:
 						break;

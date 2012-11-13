@@ -248,7 +248,7 @@ class Display
     (depth+1).times do
       commandString << "<"
     end
-    commandString << " " << hash["PresetName"] << "\n\n"
+    commandString << " " << hash["PresetName"] << "\n"
     puts commandString
   end
   
@@ -260,7 +260,7 @@ class Display
     (depth+1).times do
       commandString << ">"
     end
-    commandString << "\n\n"
+    commandString << "\n"
     puts commandString
   end
   
@@ -524,28 +524,50 @@ class Display
     if hash["UsesPictureFilters"] == 1
       
       case hash["PictureDeinterlace"]
+      when 1
+        commandString << " --deinterlace=" << hash["PictureDeinterlaceCustom"].to_s
       when 2
-        commandString << " --deinterlace=\"fast\""
+        commandString << " --deinterlace=fast"
       when 3
-        commandString << " --deinterlace=\slow\""
+        commandString << " --deinterlace=slow"
       when 4
-        commandString << " --deinterlace=\"slower\""
+        commandString << " --deinterlace=slower"
       when 5
-        commandString << " --deinterlace=\"slowest\""
+        commandString << " --deinterlace=bob"
       end
       
       case hash["PictureDenoise"]
+      when 1
+        commandString << " --denoise=" << hash["PictureDenoiseCustom"].to_s
       when 2
-        commandString << " --denoise=\"weak\""
+        commandString << " --denoise=weak"
       when 3
-        commandString << " --denoise=\"medium\""
+        commandString << " --denoise=medium"
       when 4
-        commandString << " --denoise=\"strong\""
+        commandString << " --denoise=strong"
       end
       
-      if hash["PictureDetelecine"] == 2 then commandString << " --detelecine" end
-      if hash["PictureDeblock"] != 0 then commandString << " --deblock=" << hash["PictureDeblock"].to_s end
-      if hash["PictureDecomb"] == 2 then commandString << " --decomb" end
+      case hash["PictureDecomb"]
+      when 1
+        commandString << " --decomb=" << hash["PictureDecombCustom"].to_s
+      when 2
+        commandString << " --decomb"
+      when 3
+        commandString << " --decomb=fast"
+      when 4
+        commandString << " --decomb=bob"
+      end
+
+      case hash["PictureDetelecine"]
+        when 1
+          commandString << " --detelecine=" << hash["PictureDetelecineCustom"].to_s
+        when 2
+          commandString << " --detelecine"
+      end
+
+      if hash["PictureDeblock"] != 0
+        commandString << " --deblock=" << hash["PictureDeblock"].to_s
+      end
       
     end
     
@@ -556,6 +578,11 @@ class Display
       commandString << " --loose-anamorphic"
     elsif hash["PicturePAR"] == 3
       commandString << " --custom-anamorphic"
+    end
+
+    #Modulus
+    if hash["PictureModulus"]
+      commandString << " --modulus " << hash["PictureModulus"].to_s
     end
 
     #Booleans
@@ -572,10 +599,6 @@ class Display
     
     # That's it, print to screen now
     puts commandString
-    
-    #puts "*" * @columnWidth
-
-    puts  "\n"
   end
   
   def generateCLIFolderParse( hash, depth ) # Shows the folder for wrappers to parse
@@ -586,7 +609,7 @@ class Display
     (depth+1).times do
       commandString << "<"
     end
-    commandString << " " << hash["PresetName"] << "\n\n"
+    commandString << " " << hash["PresetName"] << "\n"
     puts commandString
   end
   
@@ -598,7 +621,7 @@ class Display
     (depth+1).times do
       commandString << ">"
     end
-    commandString << "\n\n"
+    commandString << "\n"
     puts commandString
   end
   
@@ -854,28 +877,51 @@ class Display
     if hash["UsesPictureFilters"] == 1
       
       case hash["PictureDeinterlace"]
+      when 1
+        commandString << " --deinterlace=" << hash["PictureDeinterlaceCustom"].to_s
       when 2
-        commandString << " --deinterlace=\"fast\""
+        commandString << " --deinterlace=fast"
       when 3
-        commandString << " --deinterlace=\slow\""
+        commandString << " --deinterlace=slow"
       when 4
-        commandString << " --deinterlace=\"slower\""
+        commandString << " --deinterlace=slower"
       when 5
-        commandString << " --deinterlace=\"slowest\""
+        commandString << " --deinterlace=bob"
       end
       
       case hash["PictureDenoise"]
+      when 1
+        commandString << " --denoise=" << hash["PictureDenoiseCustom"].to_s
       when 2
-        commandString << " --denoise=\"weak\""
+        commandString << " --denoise=weak"
       when 3
-        commandString << " --denoise=\"medium\""
+        commandString << " --denoise=medium"
       when 4
-        commandString << " --denoise=\"strong\""
+        commandString << " --denoise=strong"
       end
       
-      if hash["PictureDetelecine"] == 2 then commandString << " --detelecine" end
-      if hash["PictureDeblock"] != 0 then commandString << " --deblock=" << hash["PictureDeblock"].to_s end
-      if hash["PictureDecomb"] == 2 then commandString << " --decomb" end
+      case hash["PictureDecomb"]
+      when 1
+        commandString << " --decomb=" << hash["PictureDecombCustom"].to_s
+      when 2
+        commandString << " --decomb"
+      when 3
+        commandString << " --decomb=fast"
+      when 4
+        commandString << " --decomb=bob"
+      end
+
+      case hash["PictureDetelecine"]
+        when 1
+          commandString << " --detelecine=" << hash["PictureDetelecineCustom"].to_s
+        when 2
+          commandString << " --detelecine"
+      end
+
+      if hash["PictureDeblock"] != 0
+        commandString << " --deblock=" << hash["PictureDeblock"].to_s
+      end
+
     end
 
     #Anamorphic
@@ -887,6 +933,11 @@ class Display
       commandString << " --custom-anamorphic"
     end
     
+    #Modulus
+    if hash["PictureModulus"]
+      commandString << " --modulus " << hash["PictureModulus"].to_s
+    end
+
     #Booleans
     if hash["ChapterMarkers"] == 1 then commandString << " -m" end
     if hash["VideoGrayScale"] == 1 then commandString << " -g" end
@@ -901,10 +952,6 @@ class Display
     
     # That's it, print to screen now
     puts commandString
-    
-    #puts "*" * @columnWidth
-
-    puts  "\n"
   end
 
   def generateAPIcalls(hash) # Makes a C version of the preset ready for coding into the CLI
@@ -968,8 +1015,9 @@ class Display
       elsif hash["VideoFramerate"] == "29.97 (NTSC Video)"
         commandString << "job->vrate_base = " << "900900;\n    "
       elsif hash["VideoFramerate"] == "25 (PAL Film/Video)"
-        commandString << "job->vrate_base = " << "1080000\n    "
-      # Gotta add the rest of the framerates for completion's sake.
+        commandString << "job->vrate_base = " << "1080000;\n    "
+      else
+        commandString << "job->vrate_base = " << (27000000 / hash["VideoFramerate"].to_i).to_s << ";\n    "
       end
       # not same as source: pfr, else default (cfr)
       if hash["VideoFramerateMode"] == "pfr"
@@ -1186,40 +1234,64 @@ class Display
     #Video Filters
     if hash["UsesPictureFilters"] == 1
       
+      if hash["PictureDeinterlace"].to_i != 0
+        commandString << "deinterlace = 1;\n    "
+      end
+
       case hash["PictureDeinterlace"]
+      when 1
+        commandString << "deinterlace_opt = \"" << hash["PictureDeinterlaceCustom"].to_s << "\";\n    "
       when 2
-        commandString << "deinterlace = 1;\n    "
-        commandString << "deinterlace_opt = \"-1\";\n    "
-      when 3
-        commandString << "deinterlace = 1;\n    "
-        commandString << "deinterlace_opt = \"2\";\n    "
-      when 4
-        commandString << "deinterlace = 1;\n    "
         commandString << "deinterlace_opt = \"0\";\n    "
+      when 3
+        commandString << "deinterlace_opt = \"1\";\n    "
+      when 4
+        commandString << "deinterlace_opt = \"3\";\n    "
       when 5
-        commandString << "deinterlace = 1;\n    "
-        commandString << "deinterlace_opt = \"1:-1:1\";\n    "
+        commandString << "deinterlace_opt = \"15\";\n    "
       end
       
-      case hash["PictureDenoise"]
-      when 2
+      if hash["PictureDenoise"].to_i != 0
         commandString << "denoise = 1;\n    "
+      end
+
+      case hash["PictureDenoise"]
+      when 1
+        commandString << "denoise_opt = \"" << hash["PictureDenoiseCustom"].to_s << "\";\n    "
+      when 2
         commandString << "denoise_opt = \"2:1:2:3\";\n    "
       when 3
-        commandString << "denoise = 1;\n    "
         commandString << "denoise_opt = \"3:2:2:3\";\n    "
       when 4
-        commandString << "denoise = 1;\n    "
         commandString << "denoise_opt = \"7:7:5:5\";\n    "
       end
       
-      if hash["PictureDetelecine"] == 2 then commandString << "detelecine = 1;\n    " end
+      if hash["PictureDecomb"].to_i != 0
+        commandString << "decomb = 1;\n    "
+      end
+
+      case hash["PictureDecomb"]
+      when 1
+        commandString << "decomb_opt = \"" << hash["PictureDecombCustom"].to_s << "\";\n    "
+      when 3
+        commandString << "decomb_opt = \"7:2:6:9:1:80\";\n    "
+      when 4
+        commandString << "decomb_opt = \"455\";\n    "
+      end
+
+      if hash["PictureDetelecine"].to_i != 0
+        commandString << "detelecine = 1;\n    "
+      end
+
+      case hash["PictureDetelecine"]
+        when 1
+          commandString << "detelecine_opt = \"" << hash["PictureDetelecineCustom"].to_s << "\";\n    "
+      end
+
       if hash["PictureDeblock"] != 0
-        then
-          commandString << "deblock = 1;\n    "
-          commandString << "deblock_opt = \"" << hash["PictureDeblock"].to_s << "\";\n    "
-        end
-      if hash["PictureDecomb"] == 2 then commandString << "decomb = 1;\n    " end
+        commandString << "deblock = 1;\n    "
+        commandString << "deblock_opt = \"" << hash["PictureDeblock"].to_s << "\";\n    "
+      end
       
     end
     
@@ -1237,18 +1309,34 @@ class Display
       commandString << "}\n    "
     end
     
+    #Modulus
+    if hash["PictureModulus"]
+      commandString << "modulus = " << hash["PictureModulus"].to_s << ";\n    "
+    end
+
     #Booleans
-    if hash["ChapterMarkers"] == 1 then commandString << "job->chapter_markers = 1;\n    " end
-    if hash["VideoGrayScale"] == 1 then commandString << "job->grayscale = 1;\n    " end
-    if hash["VideoTwoPass"] == 1 then commandString << "twoPass = 1;\n    " end
-    if hash["VideoTurboTwoPass"] == 1 then commandString << "turbo_opts_enabled = 1;\n" end
-    commandString << "\n"
-    commandString << "}"
-    
+    if hash["ChapterMarkers"] == 1
+      commandString << "job->chapter_markers = 1;\n    "
+    end
+
+    if hash["VideoGrayScale"] == 1
+      commandString << "job->grayscale = 1;\n    "
+    end
+
+    if hash["VideoTwoPass"] == 1
+      commandString << "twoPass = 1;\n    "
+    end
+
+    if hash["VideoTurboTwoPass"] == 1
+      commandString << "turbo_opts_enabled = 1;\n    "
+    end
+
+    #Finish
+    commandString = commandString.rstrip
+    commandString << "\n}"
+
     # That's it, print to screen now
     puts commandString
-    #puts "*" * @columnWidth
-    puts  "\n"
   end
   
   def generateAPIFolderList( hash, depth )
@@ -1262,7 +1350,7 @@ class Display
       commandString << "<"
     end
     commandString << " " << hash["PresetName"]
-    commandString << "\\n\");\n\n"    
+    commandString << "\\n\");\n"    
     puts commandString
   end
   
@@ -1276,7 +1364,7 @@ class Display
     (depth+1).times do
       commandString << ">"
     end
-    commandString << "\\n\");\n\n"    
+    commandString << "\\n\");\n"
     puts commandString
   end
   
@@ -1534,28 +1622,51 @@ class Display
     if hash["UsesPictureFilters"] == 1
       
       case hash["PictureDeinterlace"]
+      when 1
+        commandString << " --deinterlace=" << hash["PictureDeinterlaceCustom"].to_s
       when 2
-        commandString << " --deinterlace=\\\"fast\\\""
+        commandString << " --deinterlace=fast"
       when 3
-        commandString << " --deinterlace=\\\slow\\\""
+        commandString << " --deinterlace=slow"
       when 4
-        commandString << " --deinterlace=\\\"slower\\\""
+        commandString << " --deinterlace=slower"
       when 5
-        commandString << " --deinterlace=\\\"slowest\\\""
+        commandString << " --deinterlace=bob"
       end
       
       case hash["PictureDenoise"]
+      when 1
+        commandString << " --denoise=" << hash["PictureDenoiseCustom"].to_s
       when 2
-        commandString << " --denoise=\\\"weak\\\""
+        commandString << " --denoise=weak"
       when 3
-        commandString << " --denoise=\\\"medium\\\""
+        commandString << " --denoise=medium"
       when 4
-        commandString << " --denoise=\\\"strong\\\""
+        commandString << " --denoise=strong"
       end
       
-      if hash["PictureDetelecine"] == 2 then commandString << " --detelecine" end
-      if hash["PictureDeblock"] != 0 then commandString << " --deblock=" << hash["PictureDeblock"].to_s end
-      if hash["PictureDecomb"] == 2 then commandString << " --decomb" end
+      case hash["PictureDecomb"]
+      when 1
+        commandString << " --decomb=" << hash["PictureDecombCustom"].to_s
+      when 2
+        commandString << " --decomb"
+      when 3
+        commandString << " --decomb=fast"
+      when 4
+        commandString << " --decomb=bob"
+      end
+
+      case hash["PictureDetelecine"]
+        when 1
+          commandString << " --detelecine=" << hash["PictureDetelecineCustom"].to_s
+        when 2
+          commandString << " --detelecine"
+      end
+
+      if hash["PictureDeblock"] != 0
+        commandString << " --deblock=" << hash["PictureDeblock"].to_s
+      end
+
     end
     
     #Anamorphic
@@ -1567,6 +1678,11 @@ class Display
       commandString << " --custom-anamorphic"
     end
     
+    #Modulus
+    if hash["PictureModulus"]
+      commandString << " --modulus " << hash["PictureModulus"].to_s
+    end
+
     #Booleans
     if hash["ChapterMarkers"] == 1 then commandString << " -m" end
     if hash["VideoGrayScale"] == 1 then commandString << " -g" end
@@ -1583,7 +1699,6 @@ class Display
     
     # That's it, print to screen now
     puts commandString
-    puts  "\n"
   end
   
 end

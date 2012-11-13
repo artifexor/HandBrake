@@ -385,14 +385,14 @@ static void ShowCommands()
     fprintf( stdout, " [r]esume  Resume encoding\n" );
 }
 
-static void PrintTitleInfo( hb_title_t * title )
+static void PrintTitleInfo( hb_title_t * title, int feature )
 {
     hb_chapter_t  * chapter;
     hb_subtitle_t * subtitle;
     int i;
 
     fprintf( stderr, "+ title %d:\n", title->index );
-    if ( title->index == title->job->feature )
+    if ( title->index == feature )
     {
         fprintf( stderr, "  + Main Feature\n" );
     }
@@ -470,6 +470,18 @@ static void PrintTitleInfo( hb_title_t * title )
         fprintf( stderr, "  + combing detected, may be interlaced or telecined\n");
     }
 
+}
+
+static void PrintTitleSetInfo( hb_title_set_t * title_set )
+{
+    int i;
+    hb_title_t * title;
+
+    for( i = 0; i < hb_list_count( title_set->list_title ); i++ )
+    {
+        title = hb_list_item( title_set->list_title, i );
+        PrintTitleInfo( title, title_set->feature );
+    }
 }
 
 static int test_sub_list( char ** list, int pos )
@@ -582,7 +594,7 @@ static int HandleEvents( hb_handle_t * h )
 
         case HB_STATE_SCANDONE:
         {
-            hb_list_t  * list;
+            hb_title_set_t * title_set;
             hb_title_t * title;
             hb_job_t   * job;
             int i;
@@ -599,9 +611,9 @@ static int HandleEvents( hb_handle_t * h )
             double gain = 0;
             /* Audio argument string parsing variables */
 
-            list = hb_get_titles( h );
+            title_set = hb_get_title_set( h );
 
-            if( !hb_list_count( list ) )
+            if( !title_set || !hb_list_count( title_set->list_title ) )
             {
                 /* No valid title, stop right there */
                 fprintf( stderr, "No title found.\n" );
@@ -618,9 +630,9 @@ static int HandleEvents( hb_handle_t * h )
 
                 fprintf( stderr, "Searching for main feature title...\n" );
 
-                for( i = 0; i < hb_list_count( list ); i++ )
+                for( i = 0; i < hb_list_count( title_set->list_title ); i++ )
                 {
-                    title = hb_list_item( list, i );
+                    title = hb_list_item( title_set->list_title, i );
                     title_time = (title->hours*60*60 ) + (title->minutes *60) + (title->seconds);
                     fprintf( stderr, " + Title (%d) index %d has length %dsec\n",
                              i, title->index, title_time );
@@ -630,7 +642,7 @@ static int HandleEvents( hb_handle_t * h )
                         main_feature_pos = i;
                         main_feature_idx = title->index;
                     }
-                    if( title->job->feature == title->index )
+                    if( title_set->feature == title->index )
                     {
                         main_feature_time = title_time;
                         main_feature_pos = i;
@@ -648,28 +660,24 @@ static int HandleEvents( hb_handle_t * h )
                 fprintf( stderr, "Found main feature title, setting title to %d\n",
                          main_feature_idx);
 
-                title = hb_list_item( list, main_feature_pos);
+                title = hb_list_item( title_set->list_title, main_feature_pos);
             } else {
-                title = hb_list_item( list, 0 );
+                title = hb_list_item( title_set->list_title, 0 );
             }
 
             if( !titleindex || titlescan )
             {
                 /* Scan-only mode, print infos and exit */
-                int i;
-                for( i = 0; i < hb_list_count( list ); i++ )
-                {
-                    title = hb_list_item( list, i );
-                    PrintTitleInfo( title );
-                }
+                PrintTitleSetInfo( title_set );
                 die = 1;
                 break;
             }
 
-            /* Set job settings */
-            job   = title->job;
+            PrintTitleInfo( title, title_set->feature );
 
-            PrintTitleInfo( title );
+            /* Set job settings */
+            job = hb_job_init( title );
+
 
             if( chapter_start && chapter_end && !stop_at_pts && !start_at_preview && !stop_at_frame && !start_at_pts && !start_at_frame )
             {
@@ -732,9 +740,7 @@ static int HandleEvents( hb_handle_t * h )
                         anamorphic_mode = 2;
                     }
                     job->chapter_markers = 1;
-                    
                 }
-
                 if (!strcmp(preset_name, "iPod"))
                 {
                     if( !mux )
@@ -774,9 +780,7 @@ static int HandleEvents( hb_handle_t * h )
                         advanced_opts = strdup("level=30:bframes=0:weightp=0:cabac=0:ref=1:vbv-maxrate=768:vbv-bufsize=2000:analyse=all:me=umh:no-fast-pskip=1:subme=6:8x8dct=0:trellis=0");
                     }
                     job->chapter_markers = 1;
-                    
                 }
-
                 if (!strcmp(preset_name, "iPhone & iPod Touch"))
                 {
                     if( !mux )
@@ -815,9 +819,7 @@ static int HandleEvents( hb_handle_t * h )
                         advanced_opts = strdup("cabac=0:ref=2:me=umh:bframes=0:weightp=0:subme=6:8x8dct=0:trellis=0");
                     }
                     job->chapter_markers = 1;
-                    
                 }
-
                 if (!strcmp(preset_name, "iPhone 4"))
                 {
                     if( !mux )
@@ -859,9 +861,7 @@ static int HandleEvents( hb_handle_t * h )
                         anamorphic_mode = 2;
                     }
                     job->chapter_markers = 1;
-                    
                 }
-
                 if (!strcmp(preset_name, "iPad"))
                 {
                     if( !mux )
@@ -903,9 +903,7 @@ static int HandleEvents( hb_handle_t * h )
                         anamorphic_mode = 2;
                     }
                     job->chapter_markers = 1;
-                    
                 }
-
                 if (!strcmp(preset_name, "AppleTV"))
                 {
                     if( !mux )
@@ -949,9 +947,7 @@ static int HandleEvents( hb_handle_t * h )
                         anamorphic_mode = 2;
                     }
                     job->chapter_markers = 1;
-                    
                 }
-
                 if (!strcmp(preset_name, "AppleTV 2"))
                 {
                     if( !mux )
@@ -993,9 +989,7 @@ static int HandleEvents( hb_handle_t * h )
                         anamorphic_mode = 2;
                     }
                     job->chapter_markers = 1;
-                    
                 }
-                
                 if (!strcmp(preset_name, "AppleTV 3"))
                 {
                     if( !mux )
@@ -1005,6 +999,7 @@ static int HandleEvents( hb_handle_t * h )
                     job->largeFileSize = 1;
                     vcodec = HB_VCODEC_X264;
                     job->vquality = 20.0;
+                    job->vrate_base = 900000;
                     job->cfr = 2;
                     if( !atracks )
                     {
@@ -1035,14 +1030,15 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         advanced_opts = strdup("b-adapt=2");
                     }
+                    decomb = 1;
+                    decomb_opt = "7:2:6:9:1:80";
                     if( !anamorphic_mode )
                     {
                         anamorphic_mode = 2;
                     }
+                    modulus = 2;
                     job->chapter_markers = 1;
-                    
                 }
-
                 if (!strcmp(preset_name, "Android Mid"))
                 {
                     if( !mux )
@@ -1082,9 +1078,7 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         advanced_opts = strdup("cabac=0:ref=2:me=umh:bframes=0:weightp=0:subme=6:8x8dct=0:trellis=0");
                     }
-                    
                 }
-
                 if (!strcmp(preset_name, "Android High"))
                 {
                     if( !mux )
@@ -1128,9 +1122,7 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         anamorphic_mode = 2;
                     }
-                    
                 }
-
                 if (!strcmp(preset_name, "Normal"))
                 {
                     if( !mux )
@@ -1172,9 +1164,7 @@ static int HandleEvents( hb_handle_t * h )
                         anamorphic_mode = 1;
                     }
                     job->chapter_markers = 1;
-                    
                 }
-
                 if (!strcmp(preset_name, "High Profile"))
                 {
                     if( !mux )
@@ -1218,9 +1208,7 @@ static int HandleEvents( hb_handle_t * h )
                         anamorphic_mode = 2;
                     }
                     job->chapter_markers = 1;
-                    
                 }
-
                 if (!strcmp(preset_name, "Classic"))
                 {
                     if( !mux )
@@ -1252,9 +1240,7 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         dynamic_range_compression = strdup("0.0");
                     }
-                    
                 }
-
                 if (!strcmp(preset_name, "iPod Legacy"))
                 {
                     if( !mux )
@@ -1294,9 +1280,7 @@ static int HandleEvents( hb_handle_t * h )
                         advanced_opts = strdup("level=30:bframes=0:weightp=0:cabac=0:ref=1:vbv-maxrate=1500:vbv-bufsize=2000:analyse=all:me=umh:no-fast-pskip=1:psy-rd=0,0:subme=6:8x8dct=0:trellis=0");
                     }
                     job->chapter_markers = 1;
-                    
                 }
-
             }
 
 			if ( chapter_markers )
@@ -1336,16 +1320,14 @@ static int HandleEvents( hb_handle_t * h )
                                 {
                                     hb_chapter_t * chapter_s;
 
-                                    chapter_s = hb_list_item( job->title->list_chapter, chapter - 1);
-                                    strncpy(chapter_s->title, cell->cell_text, 1023);
-                                    chapter_s->title[1023] = '\0';
+                                    chapter_s = hb_list_item( job->list_chapter, chapter - 1);
+                                    hb_chapter_set_title(chapter_s, cell->cell_text);
                                 }
                             }
 
 
                             hb_dispose_cell( cell );
                         }
-
                         hb_close_csv_file( file );
                     }
                 }
@@ -1729,8 +1711,8 @@ static int HandleEvents( hb_handle_t * h )
                 }
             }
 
-            if( hb_list_count( audios ) == 0 &&
-                hb_list_count( job->title->list_audio ) > 0 )
+            if( hb_list_count(audios) == 0 &&
+                hb_list_count(title->list_audio) > 0 )
             {        
                 /* Create a new audio track with default settings */
                 audio = calloc( 1, sizeof( *audio ) );
@@ -2458,20 +2440,11 @@ static int HandleEvents( hb_handle_t * h )
                 job->ipod_atom = 1;
             }
 
-            job->file = strdup( output );
+            hb_job_set_file( job, output );
 
             if( color_matrix_code )
             {
                 job->color_matrix_code = color_matrix_code;
-            }
-
-            if( advanced_opts != NULL && *advanced_opts != '\0' )
-            {
-                job->advanced_opts = advanced_opts;
-            }
-            else /*avoids a bus error crash when options aren't specified*/
-            {
-                job->advanced_opts =  NULL;
             }
 
             job->x264_profile = x264_profile;
@@ -2515,17 +2488,13 @@ static int HandleEvents( hb_handle_t * h )
             
             if( subtitle_scan )
             {
-                char *advanced_opts_tmp;
-
                 /*
                  * When subtitle scan is enabled do a fast pre-scan job
                  * which will determine which subtitles to enable, if any.
                  */
                 job->pass = -1;
 
-                advanced_opts_tmp = job->advanced_opts;
-
-                job->advanced_opts = NULL;
+                hb_job_set_advanced_opts(job, NULL);
 
                 job->indepth_scan = subtitle_scan;
                 fprintf( stderr, "Subtitle Scan Enabled - enabling "
@@ -2535,9 +2504,9 @@ static int HandleEvents( hb_handle_t * h )
                  * Add the pre-scan job
                  */
                 hb_add( h, job );
-
-                job->advanced_opts = advanced_opts_tmp;
             }
+
+            hb_job_set_advanced_opts(job, advanced_opts);
 
             if( twoPass )
             {
@@ -2582,9 +2551,10 @@ static int HandleEvents( hb_handle_t * h )
 
                 job->indepth_scan = 0;
                 job->pass = 0;
+
                 hb_add( h, job );
             }
-            hb_reset_job( job );
+            hb_job_close( &job );
             hb_start( h );
             break;
         }
@@ -3083,43 +3053,24 @@ static void ShowPresets()
     fprintf( stderr, "%s - %s - %s\n", HB_PROJECT_TITLE, HB_PROJECT_BUILD_TITLE, HB_PROJECT_URL_WEBSITE );
 
     printf("\n< Devices\n");
-    
     printf("\n   + Universal:  -e x264  -q 20.0 -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -X 720 --loose-anamorphic -m -x cabac=0:ref=2:me=umh:bframes=0:weightp=0:8x8dct=0:trellis=0:subme=6\n");
-    
     printf("\n   + iPod:  -e x264  -b 700 -a 1 -E faac -B 160 -6 dpl2 -R Auto -D 0.0 -f mp4 -I -X 320 -m -x level=30:bframes=0:weightp=0:cabac=0:ref=1:vbv-maxrate=768:vbv-bufsize=2000:analyse=all:me=umh:no-fast-pskip=1:subme=6:8x8dct=0:trellis=0\n");
-    
     printf("\n   + iPhone & iPod Touch:  -e x264  -q 20.0 -a 1 -E faac -B 128 -6 dpl2 -R Auto -D 0.0 -f mp4 -X 480 -m -x cabac=0:ref=2:me=umh:bframes=0:weightp=0:subme=6:8x8dct=0:trellis=0\n");
-    
     printf("\n   + iPhone 4:  -e x264  -q 20.0 -r 29.97 --pfr  -a 1 -E faac -B 160 -6 dpl2 -R Auto -D 0.0 -f mp4 -4 -X 960 --loose-anamorphic -m\n");
-    
     printf("\n   + iPad:  -e x264  -q 20.0 -r 29.97 --pfr  -a 1 -E faac -B 160 -6 dpl2 -R Auto -D 0.0 -f mp4 -4 -X 1280 --loose-anamorphic -m\n");
-    
     printf("\n   + AppleTV:  -e x264  -q 20.0 -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -4 -X 960 --loose-anamorphic -m -x cabac=0:ref=2:me=umh:b-pyramid=none:b-adapt=2:weightb=0:trellis=0:weightp=0:vbv-maxrate=9500:vbv-bufsize=9500\n");
-    
     printf("\n   + AppleTV 2:  -e x264  -q 20.0 -r 29.97 --pfr  -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -4 -X 1280 --loose-anamorphic -m\n");
-    
-    printf("\n   + AppleTV 3:  -e x264  -q 20.0 -r 30 --pfr  -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -4 -X 1920 --loose-anamorphic -m -x b-adapt=2\n");
-    
+    printf("\n   + AppleTV 3:  -e x264  -q 20.0 -r 30 --pfr  -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -4 -X 1920 --decomb=fast --loose-anamorphic --modulus 2 -m -x b-adapt=2\n");
     printf("\n   + Android Mid:  -e x264  -q 22.0 -r 29.97 --pfr  -a 1 -E faac -B 128 -6 dpl2 -R Auto -D 0.0 -f mp4 -X 480 -x cabac=0:ref=2:me=umh:bframes=0:weightp=0:subme=6:8x8dct=0:trellis=0\n");
-    
     printf("\n   + Android High:  -e x264  -q 22.0 -r 29.97 --pfr  -a 1 -E faac -B 128 -6 dpl2 -R Auto -D 0.0 -f mp4 -X 720 --loose-anamorphic -x weightp=0:cabac=0\n");
-    
     printf("\n>\n");
-    
     printf("\n< Regular\n");
-    
     printf("\n   + Normal:  -e x264  -q 20.0 -a 1 -E faac -B 160 -6 dpl2 -R Auto -D 0.0 -f mp4 --strict-anamorphic -m -x ref=1:weightp=1:subq=2:rc-lookahead=10:trellis=0:8x8dct=0\n");
-    
     printf("\n   + High Profile:  -e x264  -q 20.0 -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -4 --decomb --loose-anamorphic -m -x b-adapt=2:rc-lookahead=50\n");
-    
     printf("\n>\n");
-    
     printf("\n< Legacy\n");
-    
     printf("\n   + Classic:  -b 1000 -a 1 -E faac -B 160 -6 dpl2 -R Auto -D 0.0 -f mp4\n");
-    
     printf("\n   + iPod Legacy:  -e x264  -b 1500 -a 1 -E faac -B 160 -6 dpl2 -R Auto -D 0.0 -f mp4 -I -X 640 -m -x level=30:bframes=0:weightp=0:cabac=0:ref=1:vbv-maxrate=1500:vbv-bufsize=2000:analyse=all:me=umh:no-fast-pskip=1:psy-rd=0,0:subme=6:8x8dct=0:trellis=0\n");
-    
     printf("\n>\n");
 
 }

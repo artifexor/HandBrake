@@ -176,6 +176,41 @@ namespace HandBrakeWPF
         /// </summary>
         public const string EnableDebugFeatures = "EnableDebugFeatures";
 
+        /// <summary>
+        /// Enable the use of LibHb instead of HandBrakeCLI
+        /// </summary>
+        public const string EnableLibHb = "EnableLibHb";
+
+        /// <summary>
+        /// Growl Encodes
+        /// </summary>
+        public const string GrowlEncode = "GrowlEncode";
+
+        /// <summary>
+        /// Growl Queues
+        /// </summary>
+        public const string GrowlQueue = "GrowlQueue";
+
+        /// <summary>
+        /// HandBrakes CLI Exe SHA1 Hash
+        /// </summary>
+        public const string HandBrakeExeHash = "HandBrakeExeHash";
+
+        /// <summary>
+        /// The Instance Id
+        /// </summary>
+        public const string InstanceId = "InstanceId";
+
+        /// <summary>
+        /// The X264 Stepper 
+        /// </summary>
+        public const string X264Step = "X264Step";
+
+        /// <summary>
+        /// HandBrakes build
+        /// </summary>
+        public const string HandBrakePlatform = "HandBrakePlatform";
+
         #endregion
     }
 }

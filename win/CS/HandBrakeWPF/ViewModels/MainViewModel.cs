@@ -12,14 +12,17 @@ namespace HandBrakeWPF.ViewModels
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
+    using System.Globalization;
     using System.IO;
     using System.Linq;
+    using System.Threading;
     using System.Windows;
     using System.Windows.Media.Imaging;
 
     using Caliburn.Micro;
 
     using HandBrake.ApplicationServices;
+    using HandBrake.ApplicationServices.Factories;
     using HandBrake.ApplicationServices.Model;
     using HandBrake.ApplicationServices.Model.Encoding;
     using HandBrake.ApplicationServices.Parsing;
@@ -28,12 +31,12 @@ namespace HandBrakeWPF.ViewModels
 
     using HandBrakeWPF.Commands;
     using HandBrakeWPF.Helpers;
-    using HandBrakeWPF.Isolation;
-    using HandBrakeWPF.Isolation.Interfaces;
     using HandBrakeWPF.Model;
     using HandBrakeWPF.Services.Interfaces;
     using HandBrakeWPF.ViewModels.Interfaces;
     using HandBrakeWPF.Views;
+
+    using Microsoft.Win32;
 
     using Ookii.Dialogs.Wpf;
 
@@ -84,12 +87,12 @@ namespace HandBrakeWPF.ViewModels
         /// <summary>
         /// The Source Scan Service.
         /// </summary>
-        private IScan scanService;
+        private readonly IScanServiceWrapper scanService;
 
         /// <summary>
         /// The Encode Service
         /// </summary>
-        private IEncode encodeService;
+        private readonly IEncodeServiceWrapper encodeService;
 
         /// <summary>
         /// HandBrakes Main Window Title
@@ -190,11 +193,13 @@ namespace HandBrakeWPF.ViewModels
         /// <param name="driveDetectService">
         /// The drive Detect Service.
         /// </param>
-        public MainViewModel(IUserSettingService userSettingService, IScan scanService, IEncode encodeService, IPresetService presetService,
-            IErrorService errorService, IShellViewModel shellViewModel, IUpdateService updateService, IDriveDetectService driveDetectService)
+        /// <param name="notificationService">
+        /// The notification Service.
+        /// Leave in Constructor.
+        /// </param>
+        public MainViewModel(IUserSettingService userSettingService, IScanServiceWrapper scanService, IEncodeServiceWrapper encodeService, IPresetService presetService,
+            IErrorService errorService, IShellViewModel shellViewModel, IUpdateService updateService, IDriveDetectService driveDetectService, INotificationService notificationService)
         {
-            GeneralUtilities.SetInstanceId();
-
             this.scanService = scanService;
             this.encodeService = encodeService;
             this.presetService = presetService;
@@ -204,7 +209,6 @@ namespace HandBrakeWPF.ViewModels
             this.driveDetectService = driveDetectService;
             this.userSettingService = userSettingService;
             this.queueProcessor = IoC.Get<IQueueProcessor>();
-            this.queueProcessor.QueueManager.ResetInstanceId();
 
             // Setup Properties
             this.WindowTitle = "HandBrake";
@@ -217,9 +221,11 @@ namespace HandBrakeWPF.ViewModels
             this.scanService.ScanStatusChanged += this.ScanStatusChanged;
             this.queueProcessor.JobProcessingStarted += this.QueueProcessorJobProcessingStarted;
             this.queueProcessor.QueueCompleted += this.QueueCompleted;
+            this.queueProcessor.QueueChanged += this.QueueChanged;
             this.queueProcessor.EncodeService.EncodeStatusChanged += this.EncodeStatusChanged;
 
             this.Presets = this.presetService.Presets;
+            this.CancelScanCommand = new CancelScanCommand(this.scanService);
         }
 
         #region View Model Properties
@@ -604,11 +610,16 @@ namespace HandBrakeWPF.ViewModels
         /// </summary>
         public bool ShowDebugMenu
         {
-           get
-           {
-               return this.userSettingService.GetUserSetting<bool>(UserSettingConstants.EnableDebugFeatures);
-           }
+            get
+            {
+                return this.userSettingService.GetUserSetting<bool>(UserSettingConstants.EnableDebugFeatures);
+            }
         }
+
+        /// <summary>
+        /// Gets or sets the cancel scan command.
+        /// </summary>
+        public CancelScanCommand CancelScanCommand { get; set; }
 
         #endregion
 
@@ -817,9 +828,11 @@ namespace HandBrakeWPF.ViewModels
 
             this.driveDetectService.StartDetection(this.DriveTrayChanged);
 
-            if (this.userSettingService.GetUserSetting<bool>(UserSettingConstants.EnableProcessIsolation))
+            // Log Cleaning
+            if (userSettingService.GetUserSetting<bool>(UserSettingConstants.ClearOldLogs))
             {
-                this.EnableIsolationServices();
+                Thread clearLog = new Thread(() => GeneralUtilities.ClearLogFiles(30));
+                clearLog.Start();
             }
         }
 
@@ -831,19 +844,8 @@ namespace HandBrakeWPF.ViewModels
             // Shutdown Service
             this.driveDetectService.Close();
 
-            IIsolatedScanService isolatedScanService = this.scanService as IsolatedScanService;
-            if (isolatedScanService != null)
-            {
-                // Kill any background services for this instance of HandBrake.
-                isolatedScanService.Disconnect();
-            }
-
-            IIsolatedEncodeService isolatedEncodeService = this.encodeService as IIsolatedEncodeService;
-            if (isolatedEncodeService != null)
-            {
-                // Kill any background services for this instance of HandBrake.
-                isolatedEncodeService.Disconnect();
-            }
+            this.scanService.Shutdown();
+            this.encodeService.Shutdown();
 
             // Unsubscribe from Events.
             this.scanService.ScanStared -= this.ScanStared;
@@ -851,6 +853,7 @@ namespace HandBrakeWPF.ViewModels
             this.scanService.ScanStatusChanged -= this.ScanStatusChanged;
 
             this.queueProcessor.QueueCompleted -= this.QueueCompleted;
+            this.queueProcessor.QueueChanged -= this.QueueChanged;
             this.queueProcessor.JobProcessingStarted -= this.QueueProcessorJobProcessingStarted;
             this.queueProcessor.EncodeService.EncodeStatusChanged -= this.EncodeStatusChanged;
         }
@@ -967,19 +970,18 @@ namespace HandBrakeWPF.ViewModels
             }
 
             QueueTask task = new QueueTask { Task = new EncodeTask(this.CurrentTask) };
-            if (!this.queueProcessor.QueueManager.CheckForDestinationPathDuplicates(task.Task.Destination))
+            if (!this.queueProcessor.CheckForDestinationPathDuplicates(task.Task.Destination))
             {
-                this.queueProcessor.QueueManager.Add(task);
+                this.queueProcessor.Add(task);
             }
             else
             {
                 this.errorService.ShowMessageBox("There are jobs on the queue with the same destination path. Please choose a different path for this job.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
 
-
             if (!this.IsEncoding)
             {
-                this.ProgramStatusLabel = string.Format("{0} Encodes Pending", this.queueProcessor.QueueManager.Count);
+                this.ProgramStatusLabel = string.Format("{0} Encodes Pending", this.queueProcessor.Count);
             }
         }
 
@@ -1091,14 +1093,14 @@ namespace HandBrakeWPF.ViewModels
             }
 
             // Check if we already have jobs, and if we do, just start the queue.
-            if (this.queueProcessor.QueueManager.Count != 0)
+            if (this.queueProcessor.Count != 0)
             {
                 this.queueProcessor.Start();
                 return;
             }
 
             // Otherwise, perform Santiy Checking then add to the queue and start if everything is ok.
-            if (this.ScannedSource == null || this.CurrentTask == null)
+            if (this.SelectedTitle == null)
             {
                 this.errorService.ShowMessageBox("You must first scan a source.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
@@ -1109,7 +1111,6 @@ namespace HandBrakeWPF.ViewModels
                 this.errorService.ShowMessageBox("The Destination field was empty.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
-
 
             if (File.Exists(this.Destination))
             {
@@ -1126,7 +1127,7 @@ namespace HandBrakeWPF.ViewModels
                     Task = new EncodeTask(this.CurrentTask),
                     CustomQuery = false
                 };
-            this.queueProcessor.QueueManager.Add(task);
+            this.queueProcessor.Add(task);
             this.queueProcessor.Start();
             this.IsEncoding = true;
         }
@@ -1175,7 +1176,7 @@ namespace HandBrakeWPF.ViewModels
         public void ShowCliQuery()
         {
             this.errorService.ShowMessageBox(
-                QueryGeneratorUtility.GenerateQuery(this.CurrentTask, 
+                QueryGeneratorUtility.GenerateQuery(this.CurrentTask,
                 userSettingService.GetUserSetting<int>(ASUserSettingConstants.PreviewScanCount),
                 userSettingService.GetUserSetting<int>(ASUserSettingConstants.Verbosity),
                 userSettingService.GetUserSetting<bool>(ASUserSettingConstants.DisableLibDvdNav)),
@@ -1190,37 +1191,13 @@ namespace HandBrakeWPF.ViewModels
         public void DebugScanLog()
         {
             VistaOpenFileDialog dialog = new VistaOpenFileDialog();
-             
+
             dialog.ShowDialog();
 
             if (File.Exists(dialog.FileName))
             {
                 this.scanService.DebugScanLog(dialog.FileName);
-            }    
-        }
-
-        /// <summary>
-        /// The test isolation services.
-        /// Swaps out the implementation of IScan to the IsolatedScanService version.
-        /// </summary>
-        public void EnableIsolationServices()
-        {
-            // Unhook the old services
-            this.scanService.ScanStared -= this.ScanStared;
-            this.scanService.ScanCompleted -= this.ScanCompleted;
-            this.scanService.ScanStatusChanged -= this.ScanStatusChanged;
-            this.queueProcessor.EncodeService.EncodeStatusChanged -= this.EncodeStatusChanged;
-
-            // Replace the Services
-            this.scanService = new IsolatedScanService(this.errorService, this.userSettingService);
-            this.encodeService = new IsolatedEncodeService(this.errorService, this.userSettingService);
-            this.queueProcessor.SwapEncodeService(this.encodeService);
-
-            // Add the new Event Hooks
-            this.scanService.ScanStared += this.ScanStared;
-            this.scanService.ScanCompleted += this.ScanCompleted;
-            this.scanService.ScanStatusChanged += this.ScanStatusChanged;
-            this.queueProcessor.EncodeService.EncodeStatusChanged += this.EncodeStatusChanged;
+            }
         }
 
         #endregion
@@ -1252,30 +1229,33 @@ namespace HandBrakeWPF.ViewModels
         /// </summary>
         public void BrowseDestination()
         {
-            VistaSaveFileDialog dialog = new VistaSaveFileDialog
+            SaveFileDialog saveFileDialog = new SaveFileDialog
                 {
                     Filter = "mp4|*.mp4;*.m4v|mkv|*.mkv",
+                    CheckPathExists = true,
                     AddExtension = true,
-                    OverwritePrompt = true,
                     DefaultExt = ".mp4",
+                    OverwritePrompt = true,
+                    FilterIndex = this.CurrentTask.OutputFormat == OutputFormat.Mkv ? 1 : 0,
                 };
 
             if (this.CurrentTask != null && !string.IsNullOrEmpty(this.CurrentTask.Destination))
             {
                 if (Directory.Exists(Path.GetDirectoryName(this.CurrentTask.Destination)))
                 {
-                    dialog.InitialDirectory = Path.GetDirectoryName(this.CurrentTask.Destination) + "\\";
-                    dialog.FileName = Path.GetFileName(this.CurrentTask.Destination);
+                    saveFileDialog.InitialDirectory = Path.GetDirectoryName(this.CurrentTask.Destination) + "\\";
                 }
+
+                saveFileDialog.FileName = Path.GetFileName(this.CurrentTask.Destination);
             }
 
-            dialog.ShowDialog();
-            this.Destination = dialog.FileName;
+            saveFileDialog.ShowDialog();
+            this.Destination = saveFileDialog.FileName;
 
             // Set the Extension Dropdown. This will also set Mp4/m4v correctly.
-            if (!string.IsNullOrEmpty(dialog.FileName))
+            if (!string.IsNullOrEmpty(saveFileDialog.FileName))
             {
-                switch (Path.GetExtension(dialog.FileName))
+                switch (Path.GetExtension(saveFileDialog.FileName))
                 {
                     case ".mkv":
                         this.SelectedOutputFormat = OutputFormat.Mkv;
@@ -1329,7 +1309,7 @@ namespace HandBrakeWPF.ViewModels
 
                 this.errorService.ShowMessageBox(
                         "The Preset has now been updated with your current settings.", "Preset Updated", MessageBoxButton.OK, MessageBoxImage.Information);
-            } 
+            }
         }
 
         /// <summary>
@@ -1374,7 +1354,9 @@ namespace HandBrakeWPF.ViewModels
 
             if (!string.IsNullOrEmpty(filename))
             {
-                Preset preset = PlistUtility.Import(filename);
+                PList plist = new PList(filename);
+                Preset preset = PlistPresetFactory.CreatePreset(plist);
+
                 if (this.presetService.CheckIfPresetExists(preset.Name))
                 {
                     if (!presetService.CanUpdatePreset(preset.Name))
@@ -1412,7 +1394,7 @@ namespace HandBrakeWPF.ViewModels
         /// </summary>
         public void PresetExport()
         {
-            VistaSaveFileDialog savefiledialog = new VistaSaveFileDialog { Filter = "plist|*.plist", CheckPathExists = true };
+            VistaSaveFileDialog savefiledialog = new VistaSaveFileDialog { Filter = "plist|*.plist", CheckPathExists = true, AddExtension = true };
             if (this.selectedPreset != null)
             {
                 savefiledialog.ShowDialog();
@@ -1420,7 +1402,7 @@ namespace HandBrakeWPF.ViewModels
 
                 if (filename != null)
                 {
-                    PlistUtility.Export(savefiledialog.FileName, this.selectedPreset, userSettingService.GetUserSetting<int>(ASUserSettingConstants.HandBrakeBuild).ToString());
+                    PlistUtility.Export(savefiledialog.FileName, this.selectedPreset, userSettingService.GetUserSetting<int>(ASUserSettingConstants.HandBrakeBuild).ToString(CultureInfo.InvariantCulture));
                 }
             }
             else
@@ -1437,6 +1419,23 @@ namespace HandBrakeWPF.ViewModels
             this.presetService.UpdateBuiltInPresets();
             this.NotifyOfPropertyChange("Presets");
             this.SelectedPreset = this.presetService.DefaultPreset;
+        }
+
+        /// <summary>
+        /// Start a Scan
+        /// </summary>
+        /// <param name="filename">
+        /// The filename.
+        /// </param>
+        /// <param name="title">
+        /// The title.
+        /// </param>
+        public void StartScan(string filename, int title)
+        {
+            if (!string.IsNullOrEmpty(filename))
+            {
+                this.scanService.Scan(filename, title, this.UserSettingService.GetUserSetting<int>(ASUserSettingConstants.PreviewScanCount), null);
+            }
         }
 
         #endregion
@@ -1479,22 +1478,6 @@ namespace HandBrakeWPF.ViewModels
                     // Cleanup
                     this.ShowStatusWindow = false;
                 });
-        }
-
-        /// <summary>
-        /// Start a Scan
-        /// </summary>
-        /// <param name="filename">
-        /// The filename.
-        /// </param>
-        /// <param name="title">
-        /// The title.
-        /// </param>
-        private void StartScan(string filename, int title)
-        {
-            // TODO 
-            // 1. Disable GUI.
-            this.scanService.Scan(filename, title, this.UserSettingService.GetUserSetting<int>(ASUserSettingConstants.PreviewScanCount), null);
         }
 
         /// <summary>
@@ -1657,16 +1640,37 @@ namespace HandBrakeWPF.ViewModels
                 {
                     if (e.Successful)
                     {
-                        this.NotifyOfPropertyChange("ScannedSource");
-                        this.NotifyOfPropertyChange("ScannedSource.Titles");
+                        this.NotifyOfPropertyChange(() => this.ScannedSource);
+                        this.NotifyOfPropertyChange(() => this.ScannedSource.Titles);
                         this.SelectedTitle = this.ScannedSource.Titles.FirstOrDefault(t => t.MainTitle)
                                              ?? this.ScannedSource.Titles.FirstOrDefault();
-                        this.SetupTabs();      
+                        this.SetupTabs();
                     }
 
                     this.ShowStatusWindow = false;
-                    this.SourceLabel = "Scan Completed";
-                    this.StatusLabel = "Scan Completed";
+                    if (e.Successful)
+                    {
+                        if (this.SelectedTitle != null && !string.IsNullOrEmpty(this.SelectedTitle.SourceName))
+                        {
+                            this.SourceLabel = this.SelectedTitle.SourceName;
+                        }
+                        else
+                        {
+                            this.SourceLabel = this.SourceName;
+                        }
+
+                        this.StatusLabel = "Scan Completed";
+                    }
+                    else if (!e.Successful && e.Exception == null)
+                    {
+                        this.SourceLabel = "Scan Cancelled.";
+                        this.StatusLabel = "Scan Cancelled.";
+                    }
+                    else
+                    {
+                        this.SourceLabel = "Scan Failed... See Activity Log for details.";
+                        this.StatusLabel = "Scan Failed... See Activity Log for details.";
+                    }
                 });
         }
 
@@ -1713,7 +1717,7 @@ namespace HandBrakeWPF.ViewModels
                                 e.AverageFrameRate,
                                 e.EstimatedTimeLeft,
                                 e.ElapsedTime,
-                                this.queueProcessor.QueueManager.Count);
+                                this.queueProcessor.Count);
                     }
                 });
         }
@@ -1756,6 +1760,24 @@ namespace HandBrakeWPF.ViewModels
                     this.ProgramStatusLabel = "Queue Finished";
                     this.IsEncoding = false;
                 });
+        }
+
+        /// <summary>
+        /// The queue changed.
+        /// </summary>
+        /// <param name="sender">
+        /// The sender.
+        /// </param>
+        /// <param name="e">
+        /// The EventArgs.
+        /// </param>
+        private void QueueChanged(object sender, EventArgs e)
+        {
+            Execute.OnUIThread(
+              () =>
+              {
+                  this.ProgramStatusLabel = string.Format("{0} Encodes Pending", this.queueProcessor.Count);
+              });
         }
 
         /// <summary>
@@ -1836,7 +1858,7 @@ namespace HandBrakeWPF.ViewModels
         /// </summary>
         private void DriveTrayChanged()
         {
-            Caliburn.Micro.Execute.OnUIThread(() => this.SourceMenu = this.GenerateSourceMenu());       
+            Caliburn.Micro.Execute.OnUIThread(() => this.SourceMenu = this.GenerateSourceMenu());
         }
 
         #endregion

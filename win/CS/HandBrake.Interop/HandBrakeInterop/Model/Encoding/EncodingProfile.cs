@@ -9,6 +9,7 @@
 
 namespace HandBrake.Interop.Model.Encoding
 {
+	using System;
 	using System.Collections.Generic;
 
 	using HandBrake.Interop.Model;
@@ -57,6 +58,7 @@ namespace HandBrake.Interop.Model.Encoding
 		public string X264Profile { get; set; }
 		public string X264Preset { get; set; }
 		public string X264Tune { get; set; }
+		public string H264Level { get; set; }
 		public VideoEncodeRateType VideoEncodeRateType { get; set; }
 		public double Quality { get; set; }
 		public int TargetSize { get; set; }
@@ -64,6 +66,9 @@ namespace HandBrake.Interop.Model.Encoding
 		public bool TwoPass { get; set; }
 		public bool TurboFirstPass { get; set; }
 		public double Framerate { get; set; }
+		public bool ConstantFramerate { get; set; }
+
+		[Obsolete("This setting is obsolete. Use Framerate and ConstantFramerate instead.")]
 		public bool PeakFramerate { get; set; }
 
 		public List<AudioEncoding> AudioEncodings { get; set; }
@@ -110,6 +115,7 @@ namespace HandBrake.Interop.Model.Encoding
 				X264Profile = this.X264Profile,
 				X264Preset = this.X264Preset,
 				X264Tune = this.X264Tune,
+				H264Level = this.H264Level,
 				VideoEncodeRateType = this.VideoEncodeRateType,
 				Quality = this.Quality,
 				TargetSize = this.TargetSize,
@@ -117,7 +123,10 @@ namespace HandBrake.Interop.Model.Encoding
 				TwoPass = this.TwoPass,
 				TurboFirstPass = this.TurboFirstPass,
 				Framerate = this.Framerate,
+				ConstantFramerate = this.ConstantFramerate,
+#pragma warning disable 612,618
 				PeakFramerate = this.PeakFramerate,
+#pragma warning restore 612,618
 
 				AudioEncodings = new List<AudioEncoding>(this.AudioEncodings)
 			};

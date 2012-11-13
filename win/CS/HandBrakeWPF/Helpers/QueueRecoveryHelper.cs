@@ -11,8 +11,10 @@ namespace HandBrakeWPF.Helpers
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.IO;
     using System.Linq;
+    using System.Text.RegularExpressions;
     using System.Windows;
     using System.Xml.Serialization;
 
@@ -68,12 +70,19 @@ namespace HandBrakeWPF.Helpers
                 }
 
                 // Cleanup old/unused queue files for now.
-                if (!GeneralUtilities.IsMultiInstance)
+                foreach (string file in removeFiles)
                 {
-                    foreach (string file in removeFiles)
+                    Match m = Regex.Match(file, @"([0-9]+).xml");
+                    if (m.Success)
                     {
-                        File.Delete(file);
+                        int processId = int.Parse(m.Groups[1].ToString());
+                        if (GeneralUtilities.IsPidACurrentHandBrakeInstance(processId))
+                        {
+                            continue;
+                        }
                     }
+
+                    File.Delete(file);
                 }
 
                 return queueFiles;
@@ -115,17 +124,42 @@ namespace HandBrakeWPF.Helpers
             {
                 foreach (string file in queueFiles)
                 {
-                    encodeQueue.QueueManager.RestoreQueue(appDataPath + file); // Start Recovery
+                    encodeQueue.RestoreQueue(appDataPath + file); // Start Recovery
+                    if (!file.Contains(GeneralUtilities.ProcessId.ToString(CultureInfo.InvariantCulture)))
+                    {
+                        try
+                        {
+                            // Once we load it in, remove it as we no longer need it.
+                            File.Delete(Path.Combine(appDataPath, file));
+                        }
+                        catch (Exception exc)
+                        {
+                            // Keep quite, nothing much we can do if there are problems.
+                            // We will continue processing files.
+                        }
+                    }
                 }
             }
             else
             {
-                if (GeneralUtilities.IsMultiInstance) return; // Don't tamper with the files if we are multi instance
-
                 foreach (string file in queueFiles)
                 {
                     if (File.Exists(Path.Combine(appDataPath, file)))
+                    {
+                        // Check that the file doesn't belong to another running instance.
+                        Match m = Regex.Match(file, @"([0-9]+).xml");
+                        if (m.Success)
+                        {
+                            int processId = int.Parse(m.Groups[1].ToString());
+                            if (GeneralUtilities.IsPidACurrentHandBrakeInstance(processId))
+                            {
+                                continue;
+                            }
+                        }
+
+                        // Delete it if it doesn't
                         File.Delete(Path.Combine(appDataPath, file));
+                    }
                 }
             }
         }

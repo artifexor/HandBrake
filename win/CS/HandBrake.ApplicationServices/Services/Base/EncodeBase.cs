@@ -72,7 +72,6 @@ namespace HandBrake.ApplicationServices.Services.Base
                 GeneralUtilities.CreateCliLogHeader(
                     userSettingService.GetUserSetting<string>(ASUserSettingConstants.HandBrakeVersion),
                     userSettingService.GetUserSetting<int>(ASUserSettingConstants.HandBrakeBuild));
-
         }
 
         #region Events
@@ -147,7 +146,7 @@ namespace HandBrake.ApplicationServices.Services.Base
         /// <param name="e">
         /// The EncodeProgressEventArgs.
         /// </param>
-        public void Invoke_encodeStatusChanged(EncodeProgressEventArgs e)
+        public void InvokeEncodeStatusChanged(EncodeProgressEventArgs e)
         {
             EncodeProgessStatus handler = this.EncodeStatusChanged;
             if (handler != null)
@@ -162,7 +161,7 @@ namespace HandBrake.ApplicationServices.Services.Base
         /// <param name="e">
         /// The EncodeCompletedEventArgs.
         /// </param>
-        public void Invoke_encodeCompleted(EncodeCompletedEventArgs e)
+        public void InvokeEncodeCompleted(EncodeCompletedEventArgs e)
         {
             EncodeCompletedStatus handler = this.EncodeCompleted;
             if (handler != null)
@@ -177,7 +176,7 @@ namespace HandBrake.ApplicationServices.Services.Base
         /// <param name="e">
         /// The EventArgs.
         /// </param>
-        public void Invoke_encodeStarted(EventArgs e)
+        public void InvokeEncodeStarted(EventArgs e)
         {
             EventHandler handler = this.EncodeStarted;
             if (handler != null)
@@ -214,7 +213,7 @@ namespace HandBrake.ApplicationServices.Services.Base
             {
                 string logDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) +
                                 "\\HandBrake\\logs";
-                string tempLogFile = Path.Combine(logDir, string.Format("last_encode_log{0}.txt", GeneralUtilities.GetInstanceCount));
+                string tempLogFile = Path.Combine(logDir, string.Format("last_encode_log{0}.txt", GeneralUtilities.ProcessId));
 
                 string encodeDestinationPath = Path.GetDirectoryName(destination);
                 string destinationFile = Path.GetFileName(destination);
@@ -260,12 +259,12 @@ namespace HandBrake.ApplicationServices.Services.Base
         {
             ShutdownFileWriter();
             string logDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) + "\\HandBrake\\logs";
-            string logFile = Path.Combine(logDir, string.Format("last_encode_log{0}.txt", GeneralUtilities.GetInstanceCount));
-            string logFile2 = Path.Combine(logDir, string.Format("tmp_appReadable_log{0}.txt", GeneralUtilities.GetInstanceCount));
+            string logFile = Path.Combine(logDir, string.Format("last_encode_log{0}.txt", GeneralUtilities.ProcessId));
+            string logFile2 = Path.Combine(logDir, string.Format("tmp_appReadable_log{0}.txt", GeneralUtilities.ProcessId));
 
             try
             {
-                string query = QueryGeneratorUtility.GenerateQuery(new EncodeTask(encodeQueueTask.Task), 
+                string query = QueryGeneratorUtility.GenerateQuery(new EncodeTask(encodeQueueTask.Task),
                     userSettingService.GetUserSetting<int>(ASUserSettingConstants.PreviewScanCount),
                     userSettingService.GetUserSetting<int>(ASUserSettingConstants.Verbosity),
                     userSettingService.GetUserSetting<bool>(ASUserSettingConstants.DisableLibDvdNav));
@@ -330,12 +329,16 @@ namespace HandBrake.ApplicationServices.Services.Base
                             if (this.fileWriter.BaseStream.Length > 100000000)
                             {
                                 this.Stop(
-                                    new Exception(
-                                        "The encode has been stopped. The log file has grown to over 100MB which indicates a serious problem has occured with the encode." +
-                                        "Please check the encode log for an indication of what the problem is."));
+                                    new GeneralApplicationException(
+                                        "The encode has been stopped. The log file has grown to over 100MB which indicates a serious problem has occured with the encode.", 
+                                        "Please check the encode log for an indication of what the problem is.", null));
                             }
                         }
                     }
+                }
+                catch (GeneralApplicationException)
+                {
+                    throw;
                 }
                 catch (Exception exc)
                 {

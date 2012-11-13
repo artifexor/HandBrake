@@ -1115,7 +1115,7 @@ void mask_dilate_thread( void *thread_args_v )
     pv = thread_args->pv;
     segment = thread_args->segment;
 
-    hb_log("mask filter thread started for segment %d", segment);
+    hb_log("mask dilate thread started for segment %d", segment);
 
     while (1)
     {
@@ -1217,7 +1217,7 @@ void mask_erode_thread( void *thread_args_v )
     pv = thread_args->pv;
     segment = thread_args->segment;
 
-    hb_log("mask filter thread started for segment %d", segment);
+    hb_log("mask erode thread started for segment %d", segment);
 
     while (1)
     {
@@ -1422,7 +1422,7 @@ void decomb_check_thread( void *thread_args_v )
     pv = thread_args->pv;
     segment = thread_args->segment;
 
-    hb_log("mask filter thread started for segment %d", segment);
+    hb_log("decomb check thread started for segment %d", segment);
 
     while (1)
     {
@@ -1545,6 +1545,40 @@ int comb_segmenter( hb_filter_private_t * pv )
     return check_combing_results(pv);
 }
 
+/* EDDI: Edge Directed Deinterlacing Interpolation
+   Checks 4 different slopes to see if there is more similarity along a diagonal
+   than there was vertically. If a diagonal is more similar, then it indicates
+   an edge, so interpolate along that instead of a vertical line, using either
+   linear or cubic interpolation depending on mode. */
+#define YADIF_CHECK(j) {\
+        int score = ABS(cur[-stride-1+j] - cur[+stride-1-j])\
+                      + ABS(cur[-stride  +j] - cur[+stride  -j])\
+                      + ABS(cur[-stride+1+j] - cur[+stride+1-j]);\
+        if( score < spatial_score ){\
+            spatial_score = score;\
+            if( ( pv->mode & MODE_CUBIC ) && !vertical_edge )\
+            {\
+                switch(j)\
+                {\
+                    case -1:\
+                        spatial_pred = cubic_interpolate_pixel(cur[-3 * stride - 3], cur[-stride -1], cur[+stride + 1], cur[3* stride + 3] );\
+                    break;\
+                    case -2:\
+                        spatial_pred = cubic_interpolate_pixel( ( ( cur[-3*stride - 4] + cur[-stride - 4] ) / 2 ) , cur[-stride -2], cur[+stride + 2], ( ( cur[3*stride + 4] + cur[stride + 4] ) / 2 ) );\
+                    break;\
+                    case 1:\
+                        spatial_pred = cubic_interpolate_pixel(cur[-3 * stride +3], cur[-stride +1], cur[+stride - 1], cur[3* stride -3] );\
+                    break;\
+                    case 2:\
+                        spatial_pred = cubic_interpolate_pixel(( ( cur[-3*stride + 4] + cur[-stride + 4] ) / 2 ), cur[-stride +2], cur[+stride - 2], ( ( cur[3*stride - 4] + cur[stride - 4] ) / 2 ) );\
+                    break;\
+                }\
+            }\
+            else\
+            {\
+                spatial_pred = ( cur[-stride +j] + cur[+stride -j] ) >>1;\
+            }\
+
 static void yadif_filter_line(
        hb_filter_private_t * pv,
        uint8_t             * dst,
@@ -1624,56 +1658,25 @@ static void yadif_filter_line(
                 spatial_pred = (c+e)>>1;
             }
 
-        /* EDDI: Edge Directed Deinterlacing Interpolation
-           Checks 4 different slopes to see if there is more similarity along a diagonal
-           than there was vertically. If a diagonal is more similar, then it indicates
-           an edge, so interpolate along that instead of a vertical line, using either
-           linear or cubic interpolation depending on mode. */
-        #define YADIF_CHECK(j)\
-                {   int score = ABS(cur[-stride-1+j] - cur[+stride-1-j])\
-                              + ABS(cur[-stride  +j] - cur[+stride  -j])\
-                              + ABS(cur[-stride+1+j] - cur[+stride+1-j]);\
-                    if( score < spatial_score ){\
-                        spatial_score = score;\
-                        if( ( pv->mode & MODE_CUBIC ) && !vertical_edge )\
-                        {\
-                            switch(j)\
-                            {\
-                                case -1:\
-                                    spatial_pred = cubic_interpolate_pixel(cur[-3 * stride - 3], cur[-stride -1], cur[+stride + 1], cur[3* stride + 3] );\
-                                break;\
-                                case -2:\
-                                    spatial_pred = cubic_interpolate_pixel( ( ( cur[-3*stride - 4] + cur[-stride - 4] ) / 2 ) , cur[-stride -2], cur[+stride + 2], ( ( cur[3*stride + 4] + cur[stride + 4] ) / 2 ) );\
-                                break;\
-                                case 1:\
-                                    spatial_pred = cubic_interpolate_pixel(cur[-3 * stride +3], cur[-stride +1], cur[+stride - 1], cur[3* stride -3] );\
-                                break;\
-                                case 2:\
-                                    spatial_pred = cubic_interpolate_pixel(( ( cur[-3*stride + 4] + cur[-stride + 4] ) / 2 ), cur[-stride +2], cur[+stride - 2], ( ( cur[3*stride - 4] + cur[stride - 4] ) / 2 ) );\
-                                break;\
-                            }\
-                        }\
-                        else\
-                        {\
-                            spatial_pred = ( cur[-stride +j] + cur[+stride -j] ) >>1;\
-                        }\
+            // YADIF_CHECK requires a margin to avoid invalid memory access.
+            // In MODE_CUBIC, margin needed is 2 + ABS(param).
+            // Else, the margin needed is 1 + ABS(param).
+            int margin = 2;
+            if (pv->mode & MODE_CUBIC)
+                margin = 3;
 
-                        if( x >= 2 && x <= width - 3 )
-                        {
-                            YADIF_CHECK(-1)
-                            if( x >= 3 && x <= width - 4 )
-                            {
-                                YADIF_CHECK(-2) }} }}
-                            }
-                        }
-                        if( x >= 2 && x <= width - 3 )
-                        {
-                            YADIF_CHECK(1)
-                            if( x >= 3 && x <= width - 4 )
-                            {
-                                YADIF_CHECK(2) }} }}
-                            }
-                        }
+            if (x >= margin && x <= width - (margin + 1))
+            {
+                YADIF_CHECK(-1)
+                if (x >= margin + 1 && x <= width - (margin + 2))
+                    YADIF_CHECK(-2) }} }}
+            }
+            if (x >= margin && x <= width - (margin + 1))
+            {
+                YADIF_CHECK(1)
+                if (x >= margin + 1 && x <= width - (margin + 2))
+                    YADIF_CHECK(2) }} }}
+            }
         }
 
         /* Temporally adjust the spatial prediction by
@@ -1737,15 +1740,6 @@ void yadif_decomb_filter_thread( void *thread_args_v )
         } 
 
         yadif_work = &pv->yadif_arguments[segment];
-
-#if 0
-        if( yadif_work->dst == NULL )
-        {
-            hb_error( "thread started when no work available" );
-            hb_snooze(500);
-            goto report_completion;
-        }
-#endif
 
         /*
          * Process all three planes, but only this segment of it.
@@ -1924,6 +1918,7 @@ static void yadif_filter( hb_filter_private_t * pv,
         eedi2_planer( pv );
     }
 
+    pv->is_combed = is_combed;
     if( is_combed )
     {
         if( ( pv->mode & MODE_EEDI2 ) && !( pv->mode & MODE_YADIF ) && is_combed == 1 )
@@ -2475,6 +2470,7 @@ static void hb_decomb_close( hb_filter_object_t * filter )
 
     taskset_fini( &pv->yadif_taskset );
     taskset_fini( &pv->decomb_filter_taskset );
+    taskset_fini( &pv->decomb_check_taskset );
 
     if( pv->mode & MODE_FILTER )
     {
@@ -2528,6 +2524,8 @@ static void hb_decomb_close( hb_filter_object_t * filter )
         if (pv->tmpc) eedi2_aligned_free(pv->tmpc);
     }
     
+    free(pv->block_score);
+
     /*
      * free memory for yadif structs
      */
@@ -2598,7 +2596,7 @@ static int hb_decomb_work( hb_filter_object_t * filter,
         int parity = frame ^ tff ^ 1;
 
         /* Skip the second run if the frame is uncombed */
-        if (frame && pv->yadif_arguments[0].is_combed == 0)
+        if (frame && pv->is_combed == 0)
         {
             break;
         }
@@ -2631,13 +2629,13 @@ static int hb_decomb_work( hb_filter_object_t * filter,
 
             // If frame was combed, we will use results from mcdeint
             // else we will use yadif result
-            if (pv->yadif_arguments[0].is_combed)
+            if (pv->is_combed)
                 idx ^= 1;
         }
 
         // Add to list of output buffers (should be at most 2)
         if ((pv->mode & MODE_BOB) ||
-            pv->yadif_arguments[0].is_combed == 0 ||
+            pv->is_combed == 0 ||
             frame == num_frames - 1)
         {
             if ( out == NULL )
@@ -2663,7 +2661,7 @@ static int hb_decomb_work( hb_filter_object_t * filter,
                 if (pv->mode == MODE_MASK ||
                     ((pv->mode & MODE_MASK) && (pv->mode & MODE_FILTER)) ||
                     ((pv->mode & MODE_MASK) && (pv->mode & MODE_GAMMA)) ||
-                    pv->yadif_arguments[0].is_combed)
+                    pv->is_combed)
                 {
                     apply_mask(pv, last);
                 }
@@ -2678,7 +2676,7 @@ static int hb_decomb_work( hb_filter_object_t * filter,
 
     /* if this frame was deinterlaced and bob mode is engaged, halve
        the duration of the saved timestamps. */
-    if ((pv->mode & MODE_BOB) && pv->yadif_arguments[0].is_combed)
+    if ((pv->mode & MODE_BOB) && pv->is_combed)
     {
         out->s.stop -= (out->s.stop - out->s.start) / 2LL;
         last->s.start = out->s.stop;

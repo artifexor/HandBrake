@@ -1,5 +1,4 @@
-﻿<UserControl  x:Class="HandBrakeWPF.Views.OptionsView"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+﻿<UserControl  x:Class="HandBrakeWPF.Views.OptionsView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:cal="http://www.caliburnproject.org"
         xmlns:Helpers="clr-namespace:HandBrakeWPF.Helpers"
               xmlns:Options="clr-namespace:HandBrakeWPF.Converters.Options"
@@ -14,8 +13,6 @@
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
 
-
-
         <Style TargetType="TextBlock">
             <Setter Property="Margin" Value="0,0,5,0" />
         </Style>
@@ -26,11 +23,6 @@
 
         <Style TargetType="ListBoxItem">
             <Setter Property="Padding" Value="8,4" />
-            <!--<Style.Triggers>
-                <DataTrigger Binding="{Binding IsBuildIn}" Value="True">
-                    <Setter Property="Foreground" Value="DarkBlue" />
-                </DataTrigger>
-            </Style.Triggers>-->
         </Style>
 
         <Options:OptionsTabConverter x:Key="tabConverter" />
@@ -165,32 +157,67 @@
                 </StackPanel>
 
                 <StackPanel Name="Audio" Orientation="Vertical" Margin="10,10,0,0"
-                            Visibility="{Binding SelectedTab, Converter={StaticResource tabConverter}, ConverterParameter='Language'}">
-
+                            Visibility="{Binding SelectedTab, Converter={StaticResource tabConverter}, ConverterParameter='Audio and Subtitles'}">
+                   
+                    
                     <Border BorderThickness="0 0 0 1" BorderBrush="LightGray">
                         <TextBlock Text="Audio and Subtitle Language Handling" FontSize="16" />
                     </Border>
+                    <TextBlock Text="Control the default selection behaviour for audio and subtitle tracks" Margin="0,10,0,10" />
 
-                    <TextBlock Text="Select your preferred language" Grid.Column="0" Margin="10,10,0,0" FontSize="14"/>
+                    <TextBlock Text="Select your preferred languages" Grid.Column="0" Margin="10,10,0,0" FontSize="14"/>
 
                     <Grid Margin="20,10,0,0" >
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock VerticalAlignment="Center"  Text="Audio: " FontSize="10" />
-                            <ComboBox Name="primaryAudioLanguage" VerticalAlignment="Center"  ItemsSource="{Binding PreferredLanguages}" SelectedItem="{Binding SelectedPreferredLangauge}" Width="120" />
-                            <TextBlock VerticalAlignment="Center"  Text="Subtitles: " FontSize="10" Margin="10,0,0,0" />
-                            <ComboBox Name="primarySubtitleLanguage" VerticalAlignment="Center"  ItemsSource="{Binding PreferredLanguages}" SelectedItem="{Binding SelectedPreferredSubtitleLangauge}" Width="120" />
+                            <TextBlock VerticalAlignment="Center"  Text="Audio: " />
+                            <ComboBox Name="primaryAudioLanguage" VerticalAlignment="Center"  ItemsSource="{Binding PreferredLanguages}" 
+                                      SelectedItem="{Binding SelectedPreferredLangauge}" Width="120" />
+                            <TextBlock VerticalAlignment="Center"  Text="Subtitles: " Margin="10,0,0,0" />
+                            <ComboBox Name="primarySubtitleLanguage" VerticalAlignment="Center"  ItemsSource="{Binding PreferredLanguages}" 
+                                      SelectedItem="{Binding SelectedPreferredSubtitleLangauge}" Width="120" />
                         </StackPanel>
                     </Grid>
 
-                    <TextBlock Text="Select languages for automatic inclusion" Grid.Column="0" Margin="10,20,0,0" FontSize="14"/>
+                    <TextBlock Text="Automatic language selection behaviour" Grid.Column="0" Margin="10,20,0,0" FontSize="14"/>
 
-                    <Grid Margin="20,10,0,0">
+                    <Grid Margin="20,10,0,0" >
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Audio -->
+                        <TextBlock Text="Audio:" Grid.Column="0" Grid.Row="0" Margin="0,0,5,0" HorizontalAlignment="Left"  VerticalAlignment="Center" />
+                        <ComboBox Name="autoAudioMode" Grid.Column="1" Grid.Row="0" HorizontalAlignment="Left"
+                                  ItemsSource="{Binding AddAudioModeOptions}" SelectedIndex="{Binding SelectedAddAudioMode}" Width="120" Margin="0,0,5,0" />
+                        <CheckBox Content="Add only one audio track per language" Grid.Column="1" Grid.Row="1"  HorizontalAlignment="Left"
+                                  IsChecked="{Binding AddOnlyOneAudioTrackPerLanguage}" Margin="0,5,0,0" />
+                        
+                        <!-- Subtitles -->
+                        <TextBlock Text="Subtitle:"  Grid.Column="2" Grid.Row="0" Margin="0,0,5,0" HorizontalAlignment="Left" VerticalAlignment="Center" />
+                        <ComboBox Name="autoSubtitleMode"  Grid.Column="3" Grid.Row="0" HorizontalAlignment="Left"
+                                  ItemsSource="{Binding AddSubtitleModeOptions}" SelectedIndex="{Binding SelectedAddSubtitleMode}" Width="120" Margin="0,0,5,0" />
+                        <CheckBox Content="Add Closed Captions when available"  Grid.Column="3" Grid.Row="1" Margin="0,5,0,0" 
+                                  HorizontalAlignment="Left" IsChecked="{Binding AddClosedCaptions}"/>
+                    </Grid>
+
+                    <TextBlock Text="Additional languages for possible selection" Grid.Column="0" Margin="10,20,0,0" FontSize="14"/>
+
+                    <Grid Margin="20,20,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Orientation="Horizontal">
-                            <Grid Margin="10,0,0,0">
+                            <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
@@ -198,25 +225,21 @@
                                 </Grid.ColumnDefinitions>
 
                                 <StackPanel Orientation="Vertical" Grid.Column="0">
-                                    <TextBlock Text="Available Langauges" Margin="0,0,0,5"/>
+                                    <TextBlock Text="Available Languages" Margin="0,0,0,5"/>
                                     <ListBox Name="availableLanguages" ItemsSource="{Binding AvailableLanguages}" Helpers:ListBoxHelper.SelectedItems="{Binding SelectedAvailableToMove}" 
                                              SelectionMode="Extended" Width="140" Height="140"></ListBox>
                                 </StackPanel>
 
                                 <DockPanel Grid.Column="1" Margin="10,0,10,0">
                                     <StackPanel Orientation="Vertical" VerticalAlignment="Center">
-                                        <Button VerticalAlignment="Center" Margin="0,0,0,5" cal:Message.Attach="[Event Click] = [Action LanguageMoveLeft]" Width="60" >
-                                            <Image Source="Images/arrow_right.png" Width="24" Height="24" />
-                                        </Button>
-                                        <Button VerticalAlignment="Center" Margin="0,0,0,5" cal:Message.Attach="[Event Click] = [Action LanguageMoveRight]" Width="60" >
-                                            <Image Source="Images/arrow_left.png" Width="24" Height="24" />
-                                        </Button>
-                                        <Button Content="Clear" VerticalAlignment="Center" Margin="0,0,0,5" cal:Message.Attach="[Event Click] = [Action LanguageClearAll]" Width="60" />
+                                        <Button Content="Move Left"  VerticalAlignment="Center" Margin="0,0,0,5" cal:Message.Attach="[Event Click] = [Action LanguageMoveLeft]" Width="80" />
+                                        <Button Content="Move Right"  VerticalAlignment="Center" Margin="0,0,0,5" cal:Message.Attach="[Event Click] = [Action LanguageMoveRight]" Width="80" />
+                                        <Button Content="Clear" VerticalAlignment="Center" Margin="0,0,0,5" cal:Message.Attach="[Event Click] = [Action LanguageClearAll]" Width="80"/>
                                     </StackPanel>
                                 </DockPanel>
 
                                 <StackPanel Orientation="Vertical" Grid.Column="2">
-                                    <TextBlock Text="Selected Langauges"  Margin="0,0,0,5"/>
+                                    <TextBlock Text="Chosen Selected Languages"  Margin="0,0,0,5"/>
                                     <ListBox Name="selectedLangauges" ItemsSource="{Binding SelectedLangauges}" Helpers:ListBoxHelper.SelectedItems="{Binding SelectedLangaugesToMove}" 
                                              SelectionMode="Extended" Width="140" Height="140"
                                              dd:DragDrop.DropHandler="{Binding}"
@@ -226,23 +249,6 @@
                             </Grid>
                         </StackPanel>
                     </Grid>
-
-                    <GroupBox Header="What to do (Automatically Add Tracks)" Margin="20,5,10,0" >
-                        <StackPanel Orientation="Vertical" Margin="0,5,0,5">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="Audio:" VerticalAlignment="Center" Margin="15,0,5,0" Width="100" />
-                                <ComboBox Name="autoAudioMode" ItemsSource="{Binding AddAudioModeOptions}" SelectedIndex="{Binding SelectedAddAudioMode}" Width="120" Margin="0,0,5,0" />
-                                <CheckBox Content="Add only one audio track per langauge" VerticalAlignment="Center" IsChecked="{Binding AddOnlyOneAudioTrackPerLanguage}" />
-                            </StackPanel>
-
-                            <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
-                                <TextBlock Text="Subtitle:" VerticalAlignment="Center" Margin="15,0,5,0" Width="100" />
-                                <ComboBox Name="autoSubtitleMode" ItemsSource="{Binding AddSubtitleModeOptions}" SelectedIndex="{Binding SelectedAddSubtitleMode}" Width="120" Margin="0,0,5,0" />
-                            </StackPanel>
-
-                            <CheckBox Content="Add Closed Captions when available" Margin="120,5,0,0" IsChecked="{Binding AddClosedCaptions}"/>
-                        </StackPanel>
-                    </GroupBox>
 
                     <StackPanel Orientation="Vertical" Margin="0,10,0,0">
                         <Label Content="Audio Tab Options" FontSize="14"/>
@@ -268,7 +274,6 @@
                             <CheckBox Content="Minimize to system tray (Requires Restart)" Visibility="Collapsed" IsChecked="{Binding MinimiseToTray}" />
                             <CheckBox Content="Display status messages from tray icon (balloon popups)"  Visibility="Collapsed"  IsChecked="{Binding DisplayStatusMessagesTrayIcon}" />
                             <CheckBox Content="Disable built-in preset update notification" IsChecked="{Binding DisablePresetUpdateCheckNotification}" />
-                            <CheckBox Content="Show CLI window (Allows you to cleanly exit encode with ctrl-c)" IsChecked="{Binding ShowCliWindow}" />
                             <CheckBox Content="Always clear completed queue items after an encode completes" IsChecked="{Binding ClearQueueOnEncodeCompleted}" />
                             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                 <TextBlock Text="Number of picture previews to scan:" VerticalAlignment="Center" Width="250" />
@@ -340,8 +345,9 @@
                         <TextBlock Text="These options are for developer testing of features that are currently in progress!!!!" FontWeight="Bold" Margin="0,0,0,10" />
 
                         <StackPanel Orientation="Vertical" Grid.Column="1" Margin="20,0,0,0">
-                            <CheckBox Content="Enable Process Isolation (Run Scans and Encodes via an intermediate service)" IsChecked="{Binding EnableProcessIsolation}" />
-
+                            
+                            <CheckBox Content="Enable LibHB (uses hb.dll instead of HandBrakeCLI.exe)" Margin="0,5,0,0" IsChecked="{Binding EnableLibHb}" />
+                            <CheckBox Content="Enable Process Isolation (Run Scans and Encodes via an intermediate service)" Margin="20,10,0,0" IsChecked="{Binding EnableProcessIsolation}" />
                             <StackPanel Orientation="Horizontal" Margin="0,10,0,0" Grid.Column="1">
                                 <TextBlock Text="Server Port:" VerticalAlignment="Center" />
                                 <TextBox Width="50" MaxLength="5" Text="{Binding ServerPort}" />
@@ -391,7 +397,7 @@
         </ScrollViewer>
 
         <StackPanel HorizontalAlignment="Stretch" Background="LightGray" Grid.Row="1" Grid.ColumnSpan="2" >
-            <Button Content="Save Changes" IsDefault="True" cal:Message.Attach="[Event Click] = [Action Close]"
+            <Button Content="Close" IsDefault="True" cal:Message.Attach="[Event Click] = [Action Close]"
                     HorizontalAlignment="Center" Padding="12,2" Margin="0,5,10,5" />
         </StackPanel>
 

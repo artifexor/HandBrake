@@ -167,7 +167,7 @@ hb_work_object_t * hb_sync_init( hb_job_t * job )
             duration = 0;
             for( i = job->chapter_start; i <= job->chapter_end; i++ )
             {
-                chapter   = hb_list_item( title->list_chapter, i - 1 );
+                chapter   = hb_list_item( job->list_chapter, i - 1 );
                 duration += chapter->duration;
             }
         }
@@ -179,7 +179,7 @@ hb_work_object_t * hb_sync_init( hb_job_t * job )
     /* Initialize libsamplerate for every audio track we have */
     if ( ! job->indepth_scan )
     {
-        for( i = 0; i < hb_list_count( title->list_audio ); i++ )
+        for( i = 0; i < hb_list_count( job->list_audio ); i++ )
         {
             InitAudio( job, pv->common, i );
         }
@@ -234,7 +234,9 @@ void syncVideoClose( hb_work_object_t * w )
     if ( --pv->common->ref == 0 )
     {
         hb_unlock( pv->common->mutex );
+        hb_cond_close( &pv->common->next_frame );
         hb_lock_close( &pv->common->mutex );
+        free( pv->common->first_pts );
         free( pv->common );
     }
     else
@@ -360,12 +362,12 @@ int syncVideoWork( hb_work_object_t * w, hb_buffer_t ** buf_in,
     if( !sync->cur )
     {
         sync->cur = next;
-        if( sync->cur->size == 0 )
+        if (next->size == 0)
         {
             /* we got an end-of-stream as our first video packet? 
              * Feed it downstream & signal that we're done. 
              */
-            *buf_out = hb_buffer_init( 0 );
+            *buf_out = next;
 
             pv->common->start_found = 1;
             pv->common->first_pts[0] = INT64_MAX - 1;
@@ -666,7 +668,9 @@ void syncAudioClose( hb_work_object_t * w )
     if ( --pv->common->ref == 0 )
     {
         hb_unlock( pv->common->mutex );
+        hb_cond_close( &pv->common->next_frame );
         hb_lock_close( &pv->common->mutex );
+        free( pv->common->first_pts );
         free( pv->common );
     }
     else
@@ -884,13 +888,10 @@ hb_work_object_t hb_sync_audio =
     syncAudioClose
 };
 
-#define LVL_PLUS1DB 1.122462048
-
 static void InitAudio( hb_job_t * job, hb_sync_common_t * common, int i )
 {
     hb_work_object_t  * w;
     hb_work_private_t * pv;
-    hb_title_t        * title = job->title;
     hb_sync_audio_t   * sync;
 
     pv = calloc( 1, sizeof( hb_work_private_t ) );
@@ -903,7 +904,7 @@ static void InitAudio( hb_job_t * job, hb_sync_common_t * common, int i )
 
     w = hb_get_work( WORK_SYNC_AUDIO );
     w->private_data = pv;
-    w->audio = hb_list_item( title->list_audio, i );
+    w->audio = hb_list_item( job->list_audio, i );
     w->fifo_in = w->audio->priv.fifo_raw;
 
     if ( w->audio->config.out.codec & HB_ACODEC_PASS_FLAG )
@@ -940,15 +941,16 @@ static void InitAudio( hb_job_t * job, hb_sync_common_t * common, int i )
             default:
             {
                 // Never gets here
+                codec = NULL; // Silence compiler warning
             } break;
         }
 
-        c     = avcodec_alloc_context3( codec );
-
+        c              = avcodec_alloc_context3(codec);
         c->bit_rate    = w->audio->config.in.bitrate;
         c->sample_rate = w->audio->config.in.samplerate;
-        c->channels    = av_get_channel_layout_nb_channels(w->audio->config.in.channel_layout);
-        hb_ff_set_sample_fmt( c, codec );
+        c->channels    =
+            av_get_channel_layout_nb_channels(w->audio->config.in.channel_layout);
+        hb_ff_set_sample_fmt(c, codec, AV_SAMPLE_FMT_FLT);
 
         if (w->audio->config.in.channel_layout == AV_CH_LAYOUT_STEREO_DOWNMIX)
         {
@@ -1027,7 +1029,7 @@ static void InitAudio( hb_job_t * job, hb_sync_common_t * common, int i )
         }
     }
 
-    sync->gain_factor = pow(LVL_PLUS1DB, w->audio->config.out.gain);
+    sync->gain_factor = pow(10, w->audio->config.out.gain / 20);
 
     hb_list_add( job->list_work, w );
 }
@@ -1292,7 +1294,7 @@ static void UpdateSearchState( hb_work_object_t * w, int64_t start )
     }
     if (now > sync->st_first)
     {
-        int eta;
+        int eta = 0;
 
         if ( pv->job->frame_to_start )
         {

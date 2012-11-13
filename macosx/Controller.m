@@ -11,14 +11,21 @@
 #import "HBDVDDetector.h"
 #import "HBPresets.h"
 #import "HBPreviewController.h"
+#import "DockTextField.h"
 
 unsigned int maximumNumberOfAllowedAudioTracks = 24;
-NSString *HBContainerChangedNotification = @"HBContainerChangedNotification";
-NSString *keyContainerTag = @"keyContainerTag";
-NSString *HBTitleChangedNotification = @"HBTitleChangedNotification";
-NSString *keyTitleTag = @"keyTitleTag";
+NSString *HBContainerChangedNotification       = @"HBContainerChangedNotification";
+NSString *keyContainerTag                      = @"keyContainerTag";
+NSString *HBTitleChangedNotification           = @"HBTitleChangedNotification";
+NSString *keyTitleTag                          = @"keyTitleTag";
 
-#define DragDropSimplePboardType 	@"MyCustomOutlineViewPboardType"
+NSString *dragDropFiles                        = @"dragDropFiles";
+
+#define DragDropSimplePboardType                 @"MyCustomOutlineViewPboardType"
+
+NSString *dockTilePercentFormat                = @"%2.1f%%";
+// DockTile update freqency in total percent increment
+#define dockTileUpdateFrequency                  0.1f
 
 /* We setup the toolbar values here ShowPreviewIdentifier */
 static NSString *        ToggleDrawerIdentifier             = @"Toggle Drawer Item Identifier";
@@ -26,8 +33,8 @@ static NSString *        StartEncodingIdentifier            = @"Start Encoding I
 static NSString *        PauseEncodingIdentifier            = @"Pause Encoding Item Identifier";
 static NSString *        ShowQueueIdentifier                = @"Show Queue Item Identifier";
 static NSString *        AddToQueueIdentifier               = @"Add to Queue Item Identifier";
-static NSString *        ShowPictureIdentifier             = @"Show Picture Window Item Identifier";
-static NSString *        ShowPreviewIdentifier             = @"Show Preview Window Item Identifier";
+static NSString *        ShowPictureIdentifier              = @"Show Picture Window Item Identifier";
+static NSString *        ShowPreviewIdentifier              = @"Show Preview Window Item Identifier";
 static NSString *        ShowActivityIdentifier             = @"Debug Output Item Identifier";
 static NSString *        ChooseSourceIdentifier             = @"Choose Source Item Identifier";
 
@@ -47,12 +54,8 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
         return nil;
     }
 
-    /* replace bundled app icon with one which is 32/64-bit savvy */
-#if defined( __LP64__ )
-    fApplicationIcon = [[NSImage alloc] initWithContentsOfFile:[[NSBundle mainBundle] pathForImageResource:@"HandBrake-64.icns"]];
-#else
     fApplicationIcon = [[NSImage alloc] initWithContentsOfFile:[[NSBundle mainBundle] pathForImageResource:@"HandBrake.icns"]];
-#endif
+
     if( fApplicationIcon != nil )
         [NSApp setApplicationIconImage:fApplicationIcon];
     
@@ -93,9 +96,88 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
     NSString *versionStringFull = [[NSString stringWithFormat: @"Handbrake Version: %@", [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleShortVersionString"]] stringByAppendingString: [NSString stringWithFormat: @" (%@)", [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleVersion"]]];
     [self writeToActivityLog: "%s", [versionStringFull UTF8String]];
     
+    /* Load the dockTile and instiante initial text fields */
+    dockTile = [[NSApplication sharedApplication] dockTile];
+    NSImageView *iv = [[NSImageView alloc] init];
+    [iv setImage:[[NSApplication sharedApplication] applicationIconImage]];
+    [dockTile setContentView:iv];
+    
+    /* We can move the specific values out from here by subclassing NSDockTile and package everything in here */
+    /* If colors are to be chosen once and for all, we can also remove the instantiation with numerical values */
+    percentField = [[DockTextField alloc] initWithFrame:NSMakeRect(0.0f, 32.0f, [dockTile size].width, 30.0f)];
+    [percentField changeGradientColors:[NSColor colorWithDeviceRed:0.4f green:0.6f blue:0.4f alpha:1.0f] endColor:[NSColor colorWithDeviceRed:0.2f green:0.4f blue:0.2f alpha:1.0f]];
+    [iv addSubview:percentField];
+    
+    timeField = [[DockTextField alloc] initWithFrame:NSMakeRect(0.0f, 0.0f, [dockTile size].width, 30.0f)];
+    [timeField changeGradientColors:[NSColor colorWithDeviceRed:0.6f green:0.4f blue:0.4f alpha:1.0f] endColor:[NSColor colorWithDeviceRed:0.4f green:0.2f blue:0.2f alpha:1.0f]];
+    [iv addSubview:timeField];
+    
+    [self updateDockIcon:-1.0 withETA:@""];
+    
     return self;
 }
 
+// This method is triggered at launch (and every launch) whether or not
+// files have been dragged on to the dockTile. As a consequence, [self openFiles]
+// contains the logic to detect the case when no files has been drop on the dock
+- (void)application:(NSApplication *)sender openFiles:(NSArray *)filenames
+{
+    [self openFiles:filenames];
+    
+    [NSApp replyToOpenOrPrint:NSApplicationDelegateReplySuccess];
+}
+
+- (void)openFiles:(NSArray*)filenames
+{
+    if (filenames.count == 1 && [[filenames objectAtIndex:0] isEqual:@"YES"])
+        return;
+    
+    NSMutableArray* filesList = [[NSMutableArray alloc] initWithArray:filenames];
+    [filesList removeObject:@"YES"];
+    
+    // For now, we just want to accept one file at a time
+    // If for any reason, more than one file is submitted, we will take the first one
+    if (filesList.count > 1)
+    {
+        filesList = [NSMutableArray arrayWithObject:[filesList objectAtIndex:0]];
+    }
+    
+    // The goal of this check is to know if the application was running before the drag & drop
+    // if fSubtitlesDelegate is set, then applicationDidFinishLaunching was called
+    if (fSubtitlesDelegate)
+    {
+        // Handbrake was already running when the user dropped the file(s)
+        // So we get unstack the first one and launch the scan
+        // The other ones remain in the UserDefaults, and will be handled in the updateUI method
+        // when Handbrake is idle
+        id firstItem = [filesList objectAtIndex:0];
+        [filesList removeObjectAtIndex:0];
+        
+        // This variable has only one goal, let the updateUI knows that even if idling
+        // maybe a scan is in preparation
+        fWillScan = YES;
+        
+        if (filesList.count > 0)
+        {
+            [[NSUserDefaults standardUserDefaults] setObject:filesList forKey:dragDropFiles];
+        }
+        else
+        {
+            [[NSUserDefaults standardUserDefaults] removeObjectForKey:dragDropFiles];
+        }
+        
+        [browsedSourceDisplayName release];
+        browsedSourceDisplayName = [[firstItem lastPathComponent] retain];
+        [self performScan:firstItem scanTitleNum:0];
+    }
+    else
+    {
+        // Handbrake was not running before the user dropped the file(s)
+        // So we save the file(s) list in the UserDefaults and we will read them
+        // in the applicationDidFinishLaunching method
+        [[NSUserDefaults standardUserDefaults] setObject:filesList forKey:dragDropFiles];
+    }
+}
 
 - (void) applicationDidFinishLaunching: (NSNotification *) notification
 {
@@ -194,6 +276,9 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
      */
      applyQueueToScan = NO;
     
+    // We try to get the list of filenames that may have been drag & drop before the application was running
+    id dragDropFilesId = [[NSUserDefaults standardUserDefaults] objectForKey:dragDropFiles];
+    
     /* Now we re-check the queue array to see if there are
      * any remaining encodes to be done in it and ask the
      * user if they want to reload the queue */
@@ -253,25 +338,48 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
                                           fWindow, self,
                                           nil, @selector(didDimissReloadQueue:returnCode:contextInfo:), nil,
                                           NSLocalizedString(@" Do you want to reload them ?", nil));
+                
+                // After handling the previous queue (reload or empty), if there is files waiting for scanning
+                // we will process them
+                if (dragDropFilesId)
+                {
+                    NSArray *dragDropFiles = (NSArray *)dragDropFilesId;
+                    [self openFiles:dragDropFiles];
+                }
             }
             else
             {
-                /* Since we addressed any pending or previously encoding items above, we go ahead and make sure the queue
-                 * is empty of any finished items or cancelled items */
-                [self clearQueueAllItems];
-                /* We show whichever open source window specified in LaunchSourceBehavior preference key */
-                if ([[[NSUserDefaults standardUserDefaults] stringForKey:@"LaunchSourceBehavior"] isEqualToString: @"Open Source"])
+                // We will open the source window only if there is no dropped files waiting to be scanned
+                if (dragDropFilesId)
                 {
-                    [self browseSources:nil];
+                    NSArray *dragDropFiles = (NSArray *)dragDropFilesId;
+                    [self openFiles:dragDropFiles];
                 }
-                
-                if ([[[NSUserDefaults standardUserDefaults] stringForKey:@"LaunchSourceBehavior"] isEqualToString: @"Open Source (Title Specific)"])
+                else
                 {
-                    [self browseSources:(id)fOpenSourceTitleMMenu];
+                    /* Since we addressed any pending or previously encoding items above, we go ahead and make sure
+                     * the queue is empty of any finished items or cancelled items */
+                    [self clearQueueAllItems];
+                    /* We show whichever open source window specified in LaunchSourceBehavior preference key */
+                    if ([[[NSUserDefaults standardUserDefaults] stringForKey:@"LaunchSourceBehavior"] isEqualToString: @"Open Source"])
+                    {
+                        [self browseSources:nil];
+                    }
+                
+                    if ([[[NSUserDefaults standardUserDefaults] stringForKey:@"LaunchSourceBehavior"] isEqualToString: @"Open Source (Title Specific)"])
+                    {
+                        [self browseSources:(id)fOpenSourceTitleMMenu];
+                    }
                 }
             }
             
         }
+    }
+    // We will open the source window only if there is no dropped files waiting to be scanned
+    else if (dragDropFilesId)
+    {
+        NSArray *dragDropFiles = (NSArray *)dragDropFilesId;
+        [self openFiles:dragDropFiles];
     }
     else
     {
@@ -334,6 +442,49 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 - (int) getPidnum
 {
     return pidNum;
+}
+
+#pragma mark -
+#pragma mark Drag & drop handling
+
+// This method is used by OSX to know what kind of files can be drag & drop on the NSWindow
+// We only want filenames (and so folders too)
+- (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
+{
+    NSPasteboard *pboard = [sender draggingPasteboard];
+    
+    if ([[pboard types] containsObject:NSFilenamesPboardType])
+    {
+        NSArray *paths = [pboard propertyListForType:NSFilenamesPboardType];
+        return paths.count == 1 ? NSDragOperationGeneric : NSDragOperationNone;
+    }
+    
+    return NSDragOperationNone;
+}
+
+// This method is doing the job after the drag & drop operation has been validated by [self draggingEntered] and OSX
+- (BOOL)performDragOperation:(id <NSDraggingInfo>)sender
+{
+    NSPasteboard *pboard;
+    
+    pboard = [sender draggingPasteboard];
+    
+    if ([[pboard types] containsObject:NSFilenamesPboardType])
+    {
+        NSArray *paths = [pboard propertyListForType:NSFilenamesPboardType];
+        
+        if (paths.count > 0)
+        {
+            // For now, we just want to accept one file at a time
+            // If for any reason, more than one file is submitted, we will take the first one
+            NSArray *reducedPaths = [NSArray arrayWithObject:[paths objectAtIndex:0]];
+            paths = reducedPaths;
+        }
+        
+        [self openFiles:paths];
+    }
+    
+    return YES;
 }
 
 #pragma mark -
@@ -411,6 +562,10 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 
 - (void)applicationWillTerminate:(NSNotification *)aNotification
 {
+    // When the application is closed and we still have some files in the dragDropFiles array
+    // it's highly probable that the user throw a lot of files and just want to reset this
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:dragDropFiles];
+    
     [currentQueueEncodeNameString release];
     [browsedSourceDisplayName release];
     [outputPanel release];
@@ -578,6 +733,9 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 	[self getDefaultPresets:nil];
 	/* lets initialize the current successful scancount here to 0 */
 	currentSuccessfulScanCount = 0;
+    
+    /* Register HBController's Window as a receiver for files/folders drag & drop operations */
+    [fWindow registerForDraggedTypes:[NSArray arrayWithObject:NSFilenamesPboardType]];
 }
 
 - (void) enableUI: (bool) b
@@ -635,83 +793,28 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 
 
 /***********************************************************************
- * UpdateDockIcon
+ * updateDockIcon
  ***********************************************************************
- * Shows a progression bar on the dock icon, filled according to
- * 'progress' (0.0 <= progress <= 1.0).
- * Called with progress < 0.0 or progress > 1.0, restores the original
- * icon.
+ * Updates two DockTextFields on the dockTile,
+ * one with total percentage, the other one with the ETA.
+ * The ETA string is formated by the callers
  **********************************************************************/
-- (void) UpdateDockIcon: (float) progress
+- (void) updateDockIcon: (double) progress withETA:(NSString*)etaStr
 {
-    NSData * tiff;
-    NSBitmapImageRep * bmp;
-    uint32_t * pen;
-    uint32_t black = htonl( 0x000000FF );
-    uint32_t red   = htonl( 0xFF0000FF );
-    uint32_t white = htonl( 0xFFFFFFFF );
-    int row_start, row_end;
-    int i, j;
-
-    if( progress < 0.0 || progress > 1.0 )
+    if (progress < 0.0 || progress > 1.0)
     {
-        [NSApp setApplicationIconImage: fApplicationIcon];
-        return;
+        [percentField setHidden:YES];
+        [timeField setHidden:YES];
     }
-
-    /* Get it in a raw bitmap form */
-    tiff = [fApplicationIcon TIFFRepresentationUsingCompression:
-            NSTIFFCompressionNone factor: 1.0];
-    bmp = [NSBitmapImageRep imageRepWithData: tiff];
+    else
+    {
+        [percentField setTextToDisplay:[NSString stringWithFormat:dockTilePercentFormat,progress * 100]];
+        [percentField setHidden:NO];
+        [timeField setTextToDisplay:etaStr];
+        [timeField setHidden:NO];
+    }
     
-    /* Draw the progression bar */
-    /* It's pretty simple (ugly?) now, but I'm no designer */
-
-    row_start = 3 * (int) [bmp size].height / 4;
-    row_end   = 7 * (int) [bmp size].height / 8;
-
-    for( i = row_start; i < row_start + 2; i++ )
-    {
-        pen = (uint32_t *) ( [bmp bitmapData] + i * [bmp bytesPerRow] );
-        for( j = 0; j < (int) [bmp size].width; j++ )
-        {
-            pen[j] = black;
-        }
-    }
-    for( i = row_start + 2; i < row_end - 2; i++ )
-    {
-        pen = (uint32_t *) ( [bmp bitmapData] + i * [bmp bytesPerRow] );
-        pen[0] = black;
-        pen[1] = black;
-        for( j = 2; j < (int) [bmp size].width - 2; j++ )
-        {
-            if( j < 2 + (int) ( ( [bmp size].width - 4.0 ) * progress ) )
-            {
-                pen[j] = red;
-            }
-            else
-            {
-                pen[j] = white;
-            }
-        }
-        pen[j]   = black;
-        pen[j+1] = black;
-    }
-    for( i = row_end - 2; i < row_end; i++ )
-    {
-        pen = (uint32_t *) ( [bmp bitmapData] + i * [bmp bytesPerRow] );
-        for( j = 0; j < (int) [bmp size].width; j++ )
-        {
-            pen[j] = black;
-        }
-    }
-
-    /* Now update the dock icon */
-    tiff = [bmp TIFFRepresentationUsingCompression:
-            NSTIFFCompressionNone factor: 1.0];
-    NSImage* icon = [[NSImage alloc] initWithData: tiff];
-    [NSApp setApplicationIconImage: icon];
-    [icon release];
+    [dockTile display];
 }
 
 - (void) updateUI: (NSTimer *) timer
@@ -954,8 +1057,22 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
             /* Update dock icon */
             if( dockIconProgress < 100.0 * progress_total )
             {
-                [self UpdateDockIcon: progress_total];
-                dockIconProgress += 5;
+                // ETA format is [XX]X:XX:XX when ETA is greater than one hour
+                // [X]X:XX when ETA is greater than 0 (minutes or seconds)
+                // When these conditions doesn't applied (eg. when ETA is undefined)
+                // we show just a tilde (~)
+                
+                NSString *etaStr = @"";
+                if (p.hours > 0)
+                    etaStr = [NSString stringWithFormat:@"%d:%02d:%02d", p.hours, p.minutes, p.seconds];
+                else if (p.minutes > 0 || p.seconds > 0)
+                    etaStr = [NSString stringWithFormat:@"%d:%02d", p.minutes, p.seconds];
+                else
+                    etaStr = @"~";
+                
+                [self updateDockIcon:progress_total withETA:etaStr];
+
+                dockIconProgress += dockTileUpdateFrequency;
             }
             
             break;
@@ -974,7 +1091,7 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
             [fRipIndicator startAnimation: nil];
             
             /* Update dock icon */
-            [self UpdateDockIcon: 1.0];
+            [self updateDockIcon:1.0 withETA:@""];
             
 			break;
         }
@@ -1002,7 +1119,7 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
             [[fWindow toolbar] validateVisibleItems];
             
             /* Restore dock icon */
-            [self UpdateDockIcon: -1.0];
+            [self updateDockIcon:-1.0 withETA:@""];
             dockIconProgress = 0;
             
             if( fRipIndicatorShown )
@@ -1070,7 +1187,49 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
     {
         [fAudioAutoPassthruBox setHidden:YES];
     }
+ 
     
+    // Finally after all UI updates, we look for a next dragDropItem to scan
+    // fWillScan will signal that a scan will be launched, so we need to wait
+    // the next idle cycle after the scan
+    hb_get_state( fHandle, &s );
+    if (s.state == HB_STATE_IDLE && !fWillScan)
+    {
+        // Continue to loop on the other drag & drop files if any
+        if ([[NSUserDefaults standardUserDefaults] objectForKey:dragDropFiles])
+        {
+            NSMutableArray *filesList = [[NSMutableArray alloc] initWithArray:[[NSUserDefaults standardUserDefaults] objectForKey:dragDropFiles]];
+        
+            if (filesList.count > 0)
+            {
+                // We need to add the previous scan file into the queue (without doing the usual checks)
+                // Before scanning the new one
+                [self doAddToQueue];
+                
+                id nextItem = [filesList objectAtIndex:0];
+                [filesList removeObjectAtIndex:0];
+            
+                [browsedSourceDisplayName release];
+                browsedSourceDisplayName = [[((NSString*)nextItem) lastPathComponent] retain];
+                [self performScan:nextItem scanTitleNum:0];
+            
+                if (filesList.count > 0)
+                {
+                    // Updating the list in the user defaults
+                    [[NSUserDefaults standardUserDefaults] setObject:filesList forKey:dragDropFiles];
+                }
+                else
+                {
+                    // Cleaning if last one was treated
+                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:dragDropFiles];
+                }
+            }
+            else
+            {
+                [[NSUserDefaults standardUserDefaults] removeObjectForKey:dragDropFiles];
+            }
+        }
+    }
 }
 
 /* We use this to write messages to stderr from the macgui which show up in the activity window and log*/
@@ -1711,7 +1870,6 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 /* Here we actually tell hb_scan to perform the source scan, using the path to source and title number*/
 - (void) performScan:(NSString *) scanPath scanTitleNum: (int) scanTitleNum
 {
-    
     /* use a bool to determine whether or not we can decrypt using vlc */
     BOOL cancelScanDecrypt = 0;
     BOOL vlcFound = 0;
@@ -1810,6 +1968,10 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
         }
         hb_scan( fHandle, [path UTF8String], scanTitleNum, hb_num_previews, 1 , min_title_duration_ticks );
         [fSrcDVD2Field setStringValue:@"Scanning new source…"];
+
+        // After the scan process, we signal to enableUI loop that this scan process is now finished
+        // If remaining drag & drop files are in the UserDefaults array, they will then be processed
+        fWillScan = NO;
     }
 }
 
@@ -1820,13 +1982,13 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 
 - (IBAction) showNewScan:(id)sender
 {
-    hb_list_t  * list;
+    hb_title_set_t * title_set;
 	hb_title_t * title = NULL;
 	int feature_title=0; // Used to store the main feature title
 
-        list = hb_get_titles( fHandle );
+        title_set = hb_get_title_set( fHandle );
         
-        if( !hb_list_count( list ) )
+        if( !hb_list_count( title_set->list_title ) )
         {
             /* We display a message if a valid dvd source was not chosen */
             [fSrcDVD2Field setStringValue: @"No Valid Source Found"];
@@ -1874,9 +2036,9 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
             [[fWindow toolbar] validateVisibleItems];
             
             [fSrcTitlePopUp removeAllItems];
-            for( int i = 0; i < hb_list_count( list ); i++ )
+            for( int i = 0; i < hb_list_count( title_set->list_title ); i++ )
             {
-                title = (hb_title_t *) hb_list_item( list, i );
+                title = (hb_title_t *) hb_list_item( title_set->list_title, i );
                 
                 currentSource = [NSString stringWithUTF8String: title->name];
                 /*Set DVD Name at top of window with the browsedSourceDisplayName grokked right before -performScan */
@@ -1919,7 +2081,7 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
                 }
                 
                 /* See if this is the main feature according to libhb */
-                if (title->index == title->job->feature)
+                if (title->index == title_set->feature)
                 {
                     feature_title = i;
                 }
@@ -2341,10 +2503,10 @@ fWorkingCount = 0;
      */
      int i;
      NSMutableArray *ChapterNamesArray = [[NSMutableArray alloc] init];
-     int chaptercount = hb_list_count( fTitle->list_chapter );
+     int chaptercount = hb_list_count( fTitle->job->list_chapter );
      for( i = 0; i < chaptercount; i++ )
     {
-        hb_chapter_t *chapter = (hb_chapter_t *) hb_list_item( fTitle->list_chapter, i );
+        hb_chapter_t *chapter = (hb_chapter_t *) hb_list_item( fTitle->job->list_chapter, i );
         if( chapter != NULL )
         {
           [ChapterNamesArray addObject:[NSString stringWithUTF8String:chapter->title]];
@@ -2682,7 +2844,7 @@ fWorkingCount = 0;
     NSMutableDictionary * queueToApply = [QueueFileArray objectAtIndex:currentQueueEncodeIndex];
     [self writeToActivityLog: "Preset: %s", [[queueToApply objectForKey:@"PresetName"] UTF8String]];
     [self writeToActivityLog: "processNewQueueEncode number of passes expected is: %d", ([[queueToApply objectForKey:@"VideoTwoPass"] intValue] + 1)];
-    job->file = [[queueToApply objectForKey:@"DestinationPath"] UTF8String];
+    hb_job_set_file(job, [[queueToApply objectForKey:@"DestinationPath"] UTF8String]);
     [self prepareJob];
     
     /*
@@ -2690,16 +2852,14 @@ fWorkingCount = 0;
      */
     if( job->indepth_scan == 1 )
     {
-        char *x264opts_tmp;
+        NSString *advanced_opts_tmp = [NSString stringWithUTF8String: job->advanced_opts];
         
         /*
          * When subtitle scan is enabled do a fast pre-scan job
          * which will determine which subtitles to enable, if any.
          */
         job->pass = -1;
-        x264opts_tmp = job->advanced_opts;
-        
-        job->advanced_opts = NULL;
+        hb_job_set_advanced_opts(job, NULL);
         
         job->indepth_scan = 1;  
 
@@ -2708,7 +2868,7 @@ fWorkingCount = 0;
          * Add the pre-scan job
          */
         hb_add( fQueueEncodeLibhb, job );
-        job->advanced_opts = x264opts_tmp;
+        hb_job_set_advanced_opts(job, [advanced_opts_tmp UTF8String] );
     }
 
     
@@ -2738,8 +2898,10 @@ fWorkingCount = 0;
     [queueToApply setObject:[NSNumber numberWithInt:1] forKey:@"Status"];
     [self saveQueueFileItem];
     
-    /* we need to clean up the various lists after the job(s) have been set  */
-    hb_reset_job( job );
+    /* libhb makes a copy of the job.  So we need to free any resource
+     * that were allocated in construction of the job. This empties
+     * the audio, subtitle, and filter lists */
+    hb_job_reset(job);
     
     /* We should be all setup so let 'er rip */   
     [self doRip];
@@ -3069,13 +3231,11 @@ fWorkingCount = 0;
 		/* Lets use this as per Nyx, Thanks Nyx! */
 		/* For previews we ignore the turbo option for the first pass of two since we only use 1 pass */
 		job->fastfirstpass = 0;
-		job->advanced_opts = strdup( [[fAdvancedOptions optionsString] UTF8String] );
-
-        
+		hb_job_set_advanced_opts(job, [[fAdvancedOptions optionsString] UTF8String] );
     }
     else if( job->vcodec & HB_VCODEC_FFMPEG_MASK )
     {
-        job->advanced_opts = strdup( [[fAdvancedOptions optionsStringLavc] UTF8String] );
+        hb_job_set_advanced_opts(job, [[fAdvancedOptions optionsStringLavc] UTF8String] );
     }
 
     /* Video settings */
@@ -3527,11 +3687,10 @@ bool one_burned = FALSE;
         id tempObject;
         while (tempObject = [enumerator nextObject])
         {
-            hb_chapter_t *chapter = (hb_chapter_t *) hb_list_item( title->list_chapter, i );
+            hb_chapter_t *chapter = (hb_chapter_t *) hb_list_item( job->list_chapter, i );
             if( chapter != NULL )
             {
-                strncpy( chapter->title, [tempObject UTF8String], 1023);
-                chapter->title[1023] = '\0';
+                hb_chapter_set_title( chapter, [tempObject UTF8String] );
             }
             i++;
         }
@@ -3564,13 +3723,13 @@ bool one_burned = FALSE;
 		{
 			job->fastfirstpass = 0;
 		}
-		job->advanced_opts = strdup( [[queueToApply objectForKey:@"x264Option"] UTF8String] );
+        hb_job_set_advanced_opts( job, [[queueToApply objectForKey:@"x264Option"] UTF8String] );
     }
     else if( job->vcodec & HB_VCODEC_FFMPEG_MASK )
     {
         if ([queueToApply objectForKey:@"lavcOption"])
         {
-            job->advanced_opts = strdup( [[queueToApply objectForKey:@"lavcOption"] UTF8String] );
+            hb_job_set_advanced_opts( job, [[queueToApply objectForKey:@"lavcOption"] UTF8String] );
         }
     }
     
@@ -4417,7 +4576,6 @@ bool one_burned = FALSE;
     }
     
     /* Start Get and set the initial pic size for display */
-	hb_job_t * job = title->job;
 	fTitle = title;
     
     /* Set Auto Crop to on upon selecting a new title  */
@@ -4425,12 +4583,12 @@ bool one_burned = FALSE;
     
 	/* We get the originial output picture width and height and put them
 	in variables for use with some presets later on */
-	PicOrigOutputWidth = job->width;
-	PicOrigOutputHeight = job->height;
-	AutoCropTop = job->crop[0];
-	AutoCropBottom = job->crop[1];
-	AutoCropLeft = job->crop[2];
-	AutoCropRight = job->crop[3];
+	PicOrigOutputWidth = title->width;
+	PicOrigOutputHeight = title->height;
+	AutoCropTop = title->crop[0];
+	AutoCropBottom = title->crop[1];
+	AutoCropLeft = title->crop[2];
+	AutoCropRight = title->crop[3];
 
 	/* Reset the new title in fPictureController &&  fPreviewController*/
     [fPictureController SetTitle:title];
@@ -4452,8 +4610,6 @@ bool one_burned = FALSE;
 								 userInfo: [NSDictionary dictionaryWithObjectsAndKeys:
 											[NSData dataWithBytesNoCopy: &fTitle length: sizeof(fTitle) freeWhenDone: NO], keyTitleTag,
 											nil]]];
-
-	
     [fVidRatePopUp selectItemAtIndex: 0];
 
     /* we run the picture size values through calculatePictureSizing to get all picture setting	information*/
@@ -5261,7 +5417,8 @@ the user is using "Custom" settings by determining the sender*/
 }
 
 
-- (IBAction) toggleDrawer:(id)sender {
+- (IBAction) toggleDrawer:(id)sender
+{
     [fPresetDrawer toggle:self];
 }
 
@@ -6112,9 +6269,9 @@ return YES;
 
 - (IBAction) addPresetPicDropdownChanged: (id) sender
 {
-    if ([fPresetNewPicSettingsPopUp indexOfSelectedItem] == 1)
+    if ([[fPresetNewPicSettingsPopUp selectedItem] tag] == 1)
     {
-        [fPresetNewPicWidthHeightBox setHidden:NO];  
+        [fPresetNewPicWidthHeightBox setHidden:NO];
     }
     else
     {
@@ -6127,13 +6284,29 @@ return YES;
     /* Deselect the currently selected Preset if there is one*/
     [fPresetsOutlineView deselectRow:[fPresetsOutlineView selectedRow]];
 
-    /* Populate the preset picture settings popup here */
+    /*
+     * Populate the preset picture settings popup.
+     *
+     * Custom is not applicable when the anamorphic mode is Strict.
+     *
+     * Use [NSMenuItem tag] to store preset values for each option.
+     */
     [fPresetNewPicSettingsPopUp removeAllItems];
     [fPresetNewPicSettingsPopUp addItemWithTitle:@"None"];
-    [fPresetNewPicSettingsPopUp addItemWithTitle:@"Custom"];
+    [[fPresetNewPicSettingsPopUp lastItem] setTag: 0];
+    if (fTitle->job->anamorphic.mode != 1)
+    {
+        // not Strict, Custom is applicable
+        [fPresetNewPicSettingsPopUp addItemWithTitle:@"Custom"];
+        [[fPresetNewPicSettingsPopUp lastItem] setTag: 1];
+    }
     [fPresetNewPicSettingsPopUp addItemWithTitle:@"Source Maximum (post source scan)"];
-    /* Use current width and height by default (Custom) */
-    [fPresetNewPicSettingsPopUp selectItemAtIndex: 1];
+    [[fPresetNewPicSettingsPopUp lastItem] setTag: 2];
+    /*
+     * Default to Source Maximum for anamorphic Strict
+     * Default to Custom for all other anamorphic modes
+     */
+    [fPresetNewPicSettingsPopUp selectItemWithTag: (1 + (fTitle->job->anamorphic.mode == 1))];
     /* Save the current filters in the preset by default */
     [fPresetNewPicFiltersCheck setState:NSOnState];
     // fPresetNewFolderCheck
@@ -6234,10 +6407,10 @@ return YES;
     else // we are not creating a preset folder, so we go ahead with the rest of the preset info
     {
         /*Get the whether or not to apply pic Size and Cropping (includes Anamorphic)*/
-        [preset setObject:[NSNumber numberWithInt:[fPresetNewPicSettingsPopUp indexOfSelectedItem]] forKey:@"UsesPictureSettings"];
+        [preset setObject:[NSNumber numberWithInteger:[[fPresetNewPicSettingsPopUp selectedItem] tag]] forKey:@"UsesPictureSettings"];
         /* Get whether or not to use the current Picture Filter settings for the preset */
         [preset setObject:[NSNumber numberWithInt:[fPresetNewPicFiltersCheck state]] forKey:@"UsesPictureFilters"];
-        
+
         /* Get New Preset Description from the field in the AddPresetPanel*/
         [preset setObject:[fPresetNewDesc stringValue] forKey:@"PresetDescription"];
         /* File Format */

@@ -40,7 +40,6 @@
 
 #include "hb.h"
 #include "hbffmpeg.h"
-#include "audio_remap.h"
 #include "audio_resample.h"
 
 static void compute_frame_duration( hb_work_private_t *pv );
@@ -206,14 +205,14 @@ static int decavcodecaInit( hb_work_object_t * w, hb_job_t * job )
         AVFormatContext *ic = (AVFormatContext*)pv->title->opaque_priv;
         pv->context = avcodec_alloc_context3(codec);
         avcodec_copy_context( pv->context, ic->streams[w->audio->id]->codec);
-        hb_ff_set_sample_fmt( pv->context, codec );
+        hb_ff_set_sample_fmt( pv->context, codec, AV_SAMPLE_FMT_FLT );
     }
     else
     {
         pv->parser = av_parser_init( w->codec_param );
 
         pv->context = avcodec_alloc_context3(codec);
-        hb_ff_set_sample_fmt( pv->context, codec );
+        hb_ff_set_sample_fmt( pv->context, codec, AV_SAMPLE_FMT_FLT );
     }
     if ( hb_avcodec_open( pv->context, codec, NULL, 0 ) )
     {
@@ -257,6 +256,7 @@ static void closePrivData( hb_work_private_t ** ppv )
         }
         if ( pv->context )
         {
+            av_freep( &pv->context->extradata );
             av_free( pv->context );
         }
         if ( pv->list )
@@ -393,7 +393,7 @@ static int decavcodecaBSInfo( hb_work_object_t *w, const hb_buffer_t *buf,
 
     AVCodecParserContext *parser = av_parser_init( codec->id );
     AVCodecContext *context = avcodec_alloc_context3(codec);
-    hb_ff_set_sample_fmt( context, codec );
+    hb_ff_set_sample_fmt( context, codec, AV_SAMPLE_FMT_FLT );
     if ( hb_avcodec_open( context, codec, NULL, 0 ) )
     {
         return -1;
@@ -565,7 +565,7 @@ static void log_chapter( hb_work_private_t *pv, int chap_num, int64_t pts )
     if ( !pv->job )
         return;
 
-    c = hb_list_item( pv->job->title->list_chapter, chap_num - 1 );
+    c = hb_list_item( pv->job->list_chapter, chap_num - 1 );
     if ( c && c->title )
     {
         hb_log( "%s: \"%s\" (%d) at frame %u time %"PRId64,
@@ -686,7 +686,7 @@ static void checkCadence( int * cadence, uint16_t flags, int64_t start )
  * until enough packets have been decoded so that the timestamps can be
  * correctly rewritten, if this is necessary.
  */
-static int decodeFrame( hb_work_object_t *w, uint8_t *data, int size, int sequence, int64_t pts, int64_t dts )
+static int decodeFrame( hb_work_object_t *w, uint8_t *data, int size, int sequence, int64_t pts, int64_t dts, uint8_t frametype )
 {
     hb_work_private_t *pv = w->private_data;
     int got_picture, oldlevel = 0;
@@ -704,6 +704,15 @@ static int decodeFrame( hb_work_object_t *w, uint8_t *data, int size, int sequen
     avp.size = size;
     avp.pts = pts;
     avp.dts = dts;
+    /*
+     * libav avcodec_decode_video2() needs AVPacket flagged with AV_PKT_FLAG_KEY
+     * for some codecs. For example, sequence of PNG in a mov container.
+     */ 
+    if ( frametype & HB_FRAME_KEY )
+    {
+        avp.flags |= AV_PKT_FLAG_KEY;
+    }
+
     if ( avcodec_decode_video2( pv->context, &frame, &got_picture, &avp ) < 0 )
     {
         ++pv->decode_errors;
@@ -870,7 +879,7 @@ static int decodeFrame( hb_work_object_t *w, uint8_t *data, int size, int sequen
 
     return got_picture;
 }
-static void decodeVideo( hb_work_object_t *w, uint8_t *data, int size, int sequence, int64_t pts, int64_t dts )
+static void decodeVideo( hb_work_object_t *w, uint8_t *data, int size, int sequence, int64_t pts, int64_t dts, uint8_t frametype )
 {
     hb_work_private_t *pv = w->private_data;
 
@@ -903,14 +912,14 @@ static void decodeVideo( hb_work_object_t *w, uint8_t *data, int size, int seque
 
         if ( pout_len > 0 )
         {
-            decodeFrame( w, pout, pout_len, sequence, parser_pts, parser_dts );
+            decodeFrame( w, pout, pout_len, sequence, parser_pts, parser_dts, frametype );
         }
     } while ( pos < size );
 
     /* the stuff above flushed the parser, now flush the decoder */
     if ( size <= 0 )
     {
-        while ( decodeFrame( w, NULL, 0, sequence, AV_NOPTS_VALUE, AV_NOPTS_VALUE ) )
+        while ( decodeFrame( w, NULL, 0, sequence, AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0 ) )
         {
         }
         flushDelayQueue( pv );
@@ -1115,7 +1124,7 @@ static int decavcodecvWork( hb_work_object_t * w, hb_buffer_t ** buf_in,
     {
         if ( pv->context->codec != NULL )
         {
-            decodeVideo( w, in->data, in->size, in->sequence, pts, dts );
+            decodeVideo( w, in->data, in->size, in->sequence, pts, dts, in->s.frametype );
         }
         hb_list_add( pv->list, in );
         *buf_out = link_buf_list( pv );
@@ -1133,6 +1142,14 @@ static int decavcodecvWork( hb_work_object_t * w, hb_buffer_t ** buf_in,
             *buf_out = hb_buffer_init( 0 );;
             return HB_WORK_DONE;
         }
+        // Note that there is currently a small memory leak in libav at this
+        // point.  pv->context->priv_data gets allocated by
+        // avcodec_alloc_context3(), then avcodec_get_context_defaults3()
+        // memsets the context and looses the pointer.
+        //
+        // avcodec_get_context_defaults3() looks as if they intended for
+        // it to preserve any existing priv_data because they test the pointer
+        // before allocating new memory, but the memset has already cleared it.
         avcodec_get_context_defaults3( pv->context, codec );
         init_video_avcodec_context( pv );
         if ( setup_extradata( w, in ) )
@@ -1163,7 +1180,7 @@ static int decavcodecvWork( hb_work_object_t * w, hb_buffer_t ** buf_in,
         pv->new_chap = in->s.new_chap;
         pv->chap_time = pts >= 0? pts : pv->pts_next;
     }
-    decodeVideo( w, in->data, in->size, in->sequence, pts, dts );
+    decodeVideo( w, in->data, in->size, in->sequence, pts, dts, in->s.frametype );
     hb_buffer_close( &in );
     *buf_out = link_buf_list( pv );
     return HB_WORK_OK;
@@ -1378,6 +1395,7 @@ static void decavcodecvFlush( hb_work_object_t *w )
         {
             pv->video_codec_opened = 0;
             hb_avcodec_close( pv->context );
+            av_freep( &pv->context->extradata );
             if ( pv->parser )
             {
                 av_parser_close(pv->parser);
