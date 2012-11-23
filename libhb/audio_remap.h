@@ -40,15 +40,13 @@ typedef struct
 typedef struct
 {
     int nchannels;
-    int sample_size;
     int remap_needed;
-    hb_buffer_t *buf;
     hb_chan_map_t *channel_map_in;
     hb_chan_map_t *channel_map_out;
     int table[HB_AUDIO_REMAP_MAX_CHANNELS];
 
-    void (*remap)(uint8_t *tmp_buf, uint8_t *samples, int nsamples,
-                  int nchannels, int sample_size, int *remap_table);
+    void (*remap)(uint8_t **samples, int nsamples,
+                  int nchannels, int *remap_table);
 } hb_audio_remap_t;
 
 /*
@@ -75,7 +73,8 @@ hb_audio_remap_t* hb_audio_remap_init(enum AVSampleFormat sample_fmt,
  * Must be called at least once before remapping.
  */
 void              hb_audio_remap_set_channel_layout(hb_audio_remap_t *remap,
-                                                    uint64_t channel_layout);
+                                                    uint64_t channel_layout,
+                                                    int channels);
 
 /*
  * Free an hb_audio_remap_t.
@@ -88,7 +87,7 @@ void              hb_audio_remap_free(hb_audio_remap_t *remap);
  *
  * The remap parameter can be NULL (no remapping).
  */
-void              hb_audio_remap(hb_audio_remap_t *remap, uint8_t *samples,
+void              hb_audio_remap(hb_audio_remap_t *remap, uint8_t **samples,
                                  int nsamples);
 
 /*

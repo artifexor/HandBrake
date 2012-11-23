@@ -37,7 +37,7 @@ namespace HandBrake.Interop
 		/// <typeparam name="T">The type of structure in the list.</typeparam>
 		/// <param name="listPtr">The pointer to the native list.</param>
 		/// <returns>The converted managed list.</returns>
-		public static List<T> ConvertList<T>(IntPtr listPtr)
+		public static List<T> ToList<T>(this IntPtr listPtr)
 		{
 			List<T> returnList = new List<T>();
 			hb_list_s itemList = ReadStructure<hb_list_s>(listPtr);
@@ -46,6 +46,25 @@ namespace HandBrake.Interop
 			{
 				IntPtr itemPtr = Marshal.ReadIntPtr(itemList.items, i * Marshal.SizeOf(typeof(IntPtr)));
 				returnList.Add(ReadStructure<T>(itemPtr));
+			}
+
+			return returnList;
+		}
+
+		/// <summary>
+		/// Converts the HB list to a managed list of pointers.
+		/// </summary>
+		/// <param name="listPtr">The list to convert.</param>
+		/// <returns>The managed list of pointers.</returns>
+		public static List<IntPtr> ToIntPtrList(this IntPtr listPtr)
+		{
+			var returnList = new List<IntPtr>();
+			hb_list_s itemList = ReadStructure<hb_list_s>(listPtr);
+
+			for (int i = 0; i < itemList.items_count; i++)
+			{
+				IntPtr itemPtr = Marshal.ReadIntPtr(itemList.items, i * Marshal.SizeOf(typeof(IntPtr)));
+				returnList.Add(itemPtr);
 			}
 
 			return returnList;
@@ -160,6 +179,23 @@ namespace HandBrake.Interop
 
 			returnList.ListPtr = nativeListStructPtr;
 			return returnList;
+		}
+
+		/// <summary>
+		/// Closes the given job.
+		/// </summary>
+		/// <param name="nativeJobPtr">The pointer to the job.</param>
+		public static void CloseJob(IntPtr nativeJobPtr)
+		{
+			// Create a point to the job pointer first.
+			IntPtr nativeJobPtrPtr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(IntPtr)));
+
+			// Assign the new pointer to the job pointer and tell HB to clean the job up.
+			Marshal.WriteIntPtr(nativeJobPtrPtr, nativeJobPtr);
+			HBFunctions.hb_job_close(nativeJobPtrPtr);
+
+			// Free the pointer we used.
+			Marshal.FreeHGlobal(nativeJobPtrPtr);
 		}
 
 		/// <summary>
