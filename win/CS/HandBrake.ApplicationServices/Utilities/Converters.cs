@@ -432,12 +432,12 @@ namespace HandBrake.ApplicationServices.Utilities
                     return x264Profile.Main;
                 case "high":
                     return x264Profile.High;
-                case "high10":
-                    return x264Profile.High10;
-                case "high422":
-                    return x264Profile.High422;
-                case "high444":
-                    return x264Profile.High444;
+                //case "high10":
+                //    return x264Profile.High10;
+                //case "high422":
+                //    return x264Profile.High422;
+                //case "high444":
+                //    return x264Profile.High444;
                 default:
                     return x264Profile.Main;
             }
@@ -470,8 +470,6 @@ namespace HandBrake.ApplicationServices.Utilities
                     return x264Tune.Ssim;
                 case "fastdecode":
                     return x264Tune.Fastdecode;
-                case "zerolatency":
-                    return x264Tune.Zerolatency;
                 default:
                     return x264Tune.Film;
             }

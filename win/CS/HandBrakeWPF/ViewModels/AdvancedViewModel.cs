@@ -18,6 +18,7 @@ namespace HandBrakeWPF.ViewModels
     using HandBrake.ApplicationServices.Parsing;
     using HandBrake.Interop.Model.Encoding;
 
+    using HandBrakeWPF.Commands.Interfaces;
     using HandBrakeWPF.Helpers;
     using HandBrakeWPF.Model;
     using HandBrakeWPF.ViewModels.Interfaces;
@@ -27,6 +28,11 @@ namespace HandBrakeWPF.ViewModels
     /// </summary>
     public class AdvancedViewModel : ViewModelBase, IAdvancedViewModel
     {
+        /// <summary>
+        /// The advanced encoder options command.
+        /// </summary>
+        private readonly IAdvancedEncoderOptionsCommand advancedEncoderOptionsCommand;
+
         #region Constants and Fields
 
         /// <summary>
@@ -92,7 +98,7 @@ namespace HandBrakeWPF.ViewModels
         /// <summary>
         /// The motion estimation range.
         /// </summary>
-        private AdvancedChoice motionEstimationRange;
+        private int motionEstimationRange;
 
         /// <summary>
         /// The no dct decimate.
@@ -166,15 +172,42 @@ namespace HandBrakeWPF.ViewModels
         /// <summary>
         /// Initializes a new instance of the <see cref="AdvancedViewModel"/> class.
         /// </summary>
-        public AdvancedViewModel()
+        /// <param name="advancedEncoderOptionsCommand">
+        /// The advanced Encoder Options Command.
+        /// </param>
+        public AdvancedViewModel(IAdvancedEncoderOptionsCommand advancedEncoderOptionsCommand)
         {
+            this.advancedEncoderOptionsCommand = advancedEncoderOptionsCommand;
             this.Task = new EncodeTask();
             this.UpdateUIFromAdvancedOptions();
+        }
+
+        /// <summary>
+        /// The task object property changed.
+        /// </summary>
+        /// <param name="sender">
+        /// The sender.
+        /// </param>
+        /// <param name="e">
+        /// The PropertyChangedEventArgs.
+        /// </param>
+        private void Task_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == UserSettingConstants.ShowAdvancedTab)
+            {
+                ShowX264AdvancedOptions = this.Task.ShowAdvancedTab;
+                this.NotifyOfPropertyChange(() => ShowX264AdvancedOptions);
+            }
         }
 
         #endregion
 
         #region Properties
+
+        /// <summary>
+        /// Gets or sets a value indicating whether show x 264 advanced options.
+        /// </summary>
+        public bool ShowX264AdvancedOptions { get; set; }
 
         /// <summary>
         /// Gets or sets a value indicating whether DisplayX264Options.
@@ -188,7 +221,19 @@ namespace HandBrakeWPF.ViewModels
             set
             {
                 this.displayX264Options = value;
+
+                if (this.displayX264Options == false)
+                {
+                    this.ShowX264AdvancedOptions = false;
+                }
+
+                if (this.displayX264Options == true && this.Task.ShowAdvancedTab)
+                {
+                    this.ShowX264AdvancedOptions = true;
+                }
+
                 this.NotifyOfPropertyChange(() => this.DisplayX264Options);
+                this.NotifyOfPropertyChange(() => this.ShowX264AdvancedOptions);
             }
         }
 
@@ -243,6 +288,12 @@ namespace HandBrakeWPF.ViewModels
                 this.Task.AdvancedEncoderOptions = value;
                 this.UpdateUIFromAdvancedOptions();
                 this.NotifyOfPropertyChange(() => this.AdvancedOptionsString);
+
+                // Reset the video tab if the user is using this tab.
+                if (!string.IsNullOrEmpty(this.Task.AdvancedEncoderOptions))
+                {
+                    this.advancedEncoderOptionsCommand.ExecuteClearVideo();
+                }
             }
         }
 
@@ -405,7 +456,13 @@ namespace HandBrakeWPF.ViewModels
             {
                 this.motionEstimationMethod = value;
                 this.NotifyOfPropertyChange(() => this.MotionEstimationMethod);
-                this.NotifyOfPropertyChange(() => this.MotionEstimationRangeVisible);
+
+                if ((MotionEstimationMethod.Value == "hex" || MotionEstimationMethod.Value == "dia") && (motionEstimationRange > 16))
+                {
+                    this.motionEstimationRange = 16;
+                    this.NotifyOfPropertyChange(() => this.MotionEstimationRange);
+                }
+
                 this.UpdateOptionsString();
             }
         }
@@ -413,7 +470,7 @@ namespace HandBrakeWPF.ViewModels
         /// <summary>
         /// Gets or sets MotionEstimationRange.
         /// </summary>
-        public AdvancedChoice MotionEstimationRange
+        public int MotionEstimationRange
         {
             get
             {
@@ -422,21 +479,21 @@ namespace HandBrakeWPF.ViewModels
 
             set
             {
-                this.motionEstimationRange = value;
+                if ((MotionEstimationMethod.Value == "hex" || MotionEstimationMethod.Value == "dia") && (value > 16))
+                {
+                    this.motionEstimationRange = 16;
+                }
+                else if (value < 4)
+                {
+                    this.motionEstimationRange = 4;
+                }
+                else
+                {
+                    this.motionEstimationRange = value;
+                }
+
                 this.NotifyOfPropertyChange(() => this.MotionEstimationRange);
                 this.UpdateOptionsString();
-            }
-        }
-
-        /// <summary>
-        /// Gets a value indicating whether MotionEstimationRangeVisible.
-        /// </summary>
-        public bool MotionEstimationRangeVisible
-        {
-            get
-            {
-                string motionMethod = this.MotionEstimationMethod.Value;
-                return motionMethod == "umh" || motionMethod == "esa" || motionMethod == "tesa";
             }
         }
 
@@ -631,14 +688,6 @@ namespace HandBrakeWPF.ViewModels
         #region Public Methods
 
         /// <summary>
-        /// The notify all changed.
-        /// </summary>
-        public void NotifyAllChanged()
-        {
-            this.NotifyOfPropertyChange(() => this.AdvancedOptionsString);
-        }
-
-        /// <summary>
         /// The update ui from advanced options.
         /// </summary>
         public void UpdateUIFromAdvancedOptions()
@@ -767,13 +816,7 @@ namespace HandBrakeWPF.ViewModels
                             case "merange":
                                 if (int.TryParse(optionValue, out parseInt))
                                 {
-                                    newChoice =
-                                        AdvancedChoicesHelper.MotionEstimationRange.SingleOrDefault(
-                                            choice => choice.Value == parseInt.ToString(CultureInfo.InvariantCulture));
-                                    if (newChoice != null)
-                                    {
-                                        this.MotionEstimationRange = newChoice;
-                                    }
+                                    this.MotionEstimationRange = parseInt;
                                 }
 
                                 break;
@@ -885,8 +928,6 @@ namespace HandBrakeWPF.ViewModels
                                 }
 
                                 break;
-                            default:
-                                break;
                         }
                     }
                 }
@@ -933,6 +974,14 @@ namespace HandBrakeWPF.ViewModels
             }     
         }
 
+        /// <summary>
+        /// The clear.
+        /// </summary>
+        public void Clear()
+        {
+            this.AdvancedOptionsString = string.Empty;
+        }
+
         #endregion
 
         #region ITabInterface
@@ -948,7 +997,9 @@ namespace HandBrakeWPF.ViewModels
         /// </param>
         public void SetPreset(Preset preset, EncodeTask task)
         {
+            this.Task.PropertyChanged -= this.Task_PropertyChanged;
             this.Task = task;
+            this.Task.PropertyChanged += this.Task_PropertyChanged;
             this.AdvancedOptionsString = preset.Task.AdvancedEncoderOptions;
         }
 
@@ -1004,8 +1055,7 @@ namespace HandBrakeWPF.ViewModels
                 AdvancedChoicesHelper.MotionEstimationMethod.SingleOrDefault(choice => choice.IsDefault);
             this.SubpixelMotionEstimation =
                 AdvancedChoicesHelper.SubpixelMotionEstimation.SingleOrDefault(choice => choice.IsDefault);
-            this.MotionEstimationRange =
-                AdvancedChoicesHelper.MotionEstimationRange.SingleOrDefault(choice => choice.IsDefault);
+            this.MotionEstimationRange = 16;
             this.Analysis = AdvancedChoicesHelper.Analysis.SingleOrDefault(choice => choice.IsDefault);
             this.EightByEightDct = true;
             this.CabacEntropyCoding = true;
@@ -1042,7 +1092,7 @@ namespace HandBrakeWPF.ViewModels
                     int equalsIndex = existingSegment.IndexOf('=');
                     if (equalsIndex >= 0)
                     {
-                        optionName = existingSegment.Substring(0, existingSegment.IndexOf("="));
+                        optionName = existingSegment.Substring(0, existingSegment.IndexOf("=", System.StringComparison.Ordinal));
                     }
 
                     if (!this.uiOptions.Contains(optionName) && optionName != string.Empty)
@@ -1096,11 +1146,9 @@ namespace HandBrakeWPF.ViewModels
                 newOptions.Add("subme=" + this.SubpixelMotionEstimation.Value);
             }
 
-            string motionEstimation = this.MotionEstimationMethod.Value;
-            if ((motionEstimation == "umh" || motionEstimation == "esa" || motionEstimation == "tesa") &&
-                !this.MotionEstimationRange.IsDefault)
+            if (this.MotionEstimationRange != 16)
             {
-                newOptions.Add("merange=" + this.MotionEstimationRange.Value);
+                newOptions.Add("merange=" + this.MotionEstimationRange);
             }
 
             if (!this.Analysis.IsDefault)
@@ -1154,6 +1202,12 @@ namespace HandBrakeWPF.ViewModels
 
             this.Task.AdvancedEncoderOptions = string.Join(":", newOptions);
             this.NotifyOfPropertyChange(() => this.AdvancedOptionsString);
+
+            // Reset the video tab if the user is using this tab.
+            if (!string.IsNullOrEmpty(this.Task.AdvancedEncoderOptions))
+            {
+                this.advancedEncoderOptionsCommand.ExecuteClearVideo();
+            }
         }
 
         #endregion

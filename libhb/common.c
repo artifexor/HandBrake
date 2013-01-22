@@ -108,6 +108,7 @@ hb_encoder_t hb_video_encoders[] =
 };
 int hb_video_encoders_count = sizeof(hb_video_encoders) / sizeof(hb_encoder_t);
 
+// note: the first encoder in the list must be AAC
 hb_encoder_t hb_audio_encoders[] =
 {
 #ifdef __APPLE__
@@ -125,6 +126,7 @@ hb_encoder_t hb_audio_encoders[] =
     { "MP3 Passthru",       "copy:mp3",   HB_ACODEC_MP3_PASS,     HB_MUX_MP4|HB_MUX_MKV },
     { "Vorbis (vorbis)",    "vorbis",     HB_ACODEC_VORBIS,                  HB_MUX_MKV },
     { "FLAC (ffmpeg)",      "ffflac",     HB_ACODEC_FFFLAC,                  HB_MUX_MKV },
+    { "FLAC (24-bit)",      "ffflac24",   HB_ACODEC_FFFLAC24,                HB_MUX_MKV },
     { "Auto Passthru",      "copy",       HB_ACODEC_AUTO_PASS,    HB_MUX_MP4|HB_MUX_MKV },
 };
 int hb_audio_encoders_count = sizeof(hb_audio_encoders) / sizeof(hb_encoder_t);
@@ -161,8 +163,9 @@ int hb_mixdown_has_codec_support(int mixdown, uint32_t codec)
 
     switch (codec)
     {
-        case HB_ACODEC_FFFLAC:
         case HB_ACODEC_VORBIS:
+        case HB_ACODEC_FFFLAC:
+        case HB_ACODEC_FFFLAC24:
             return (mixdown <= HB_AMIXDOWN_7POINT1);
 
         case HB_ACODEC_LAME:
@@ -375,7 +378,8 @@ void hb_autopassthru_apply_settings( hb_job_t * job )
 void hb_autopassthru_print_settings( hb_job_t * job )
 {
     int i, codec_len;
-    char *mask = NULL, *tmp, *fallback = NULL;
+    char *mask = NULL, *tmp;
+    const char *fallback = NULL;
     for( i = 0; i < hb_audio_encoders_count; i++ )
     {
         if( ( hb_audio_encoders[i].encoder & HB_ACODEC_PASS_FLAG ) &&
@@ -429,13 +433,7 @@ int hb_autopassthru_get_encoder( int in_codec, int copy_mask, int fallback, int 
         {
             // fallback not possible with current muxer
             // use the default audio encoder instead
-#ifndef __APPLE__
-            if( muxer == HB_MUX_MKV )
-                // Lame is the default for MKV
-                fallback = HB_ACODEC_LAME;
-            else
-#endif          // Core Audio or faac
-                fallback = hb_audio_encoders[0].encoder;
+            fallback = hb_get_default_audio_encoder(muxer);
             break;
         }
     }
@@ -452,6 +450,17 @@ int hb_autopassthru_get_encoder( int in_codec, int copy_mask, int fallback, int 
     if( !( out_codec & HB_ACODEC_PASS_MASK ) )
         return fallback;
     return out_codec;
+}
+
+int hb_get_default_audio_encoder(int muxer)
+{
+#ifndef __APPLE__
+    if (muxer == HB_MUX_MKV)
+    {
+        return HB_ACODEC_LAME;
+    }
+#endif
+    return hb_audio_encoders[0].encoder;
 }
 
 // Given an input bitrate, find closest match in the set of allowed bitrates
@@ -597,6 +606,7 @@ void hb_get_audio_bitrate_limits(uint32_t codec, int samplerate, int mixdown,
     {
         // Bitrates don't apply to "lossless" audio
         case HB_ACODEC_FFFLAC:
+        case HB_ACODEC_FFFLAC24:
             *low = *high = -1;
             return;
 
@@ -715,6 +725,7 @@ int hb_get_default_audio_bitrate(uint32_t codec, int samplerate, int mixdown)
     switch (codec)
     {
         case HB_ACODEC_FFFLAC:
+        case HB_ACODEC_FFFLAC24:
             return -1;
 
         // 96, 224, 640 Kbps
@@ -825,6 +836,7 @@ void hb_get_audio_compression_limits(uint32_t codec, float *low, float *high,
     switch (codec)
     {
         case HB_ACODEC_FFFLAC:
+        case HB_ACODEC_FFFLAC24:
             *direction = 0;
             *granularity = 1;
             *high = 12;
@@ -863,6 +875,7 @@ float hb_get_default_audio_compression(uint32_t codec)
     switch (codec)
     {
         case HB_ACODEC_FFFLAC:
+        case HB_ACODEC_FFFLAC24:
             return 5.;
 
         case HB_ACODEC_LAME:
@@ -900,6 +913,7 @@ int hb_get_default_mixdown(uint32_t codec, uint64_t layout)
     {
         // the FLAC encoder defaults to the best mixdown up to 7.1
         case HB_ACODEC_FFFLAC:
+        case HB_ACODEC_FFFLAC24:
             mixdown = HB_AMIXDOWN_7POINT1;
             break;
         // the AC3 encoder defaults to the best mixdown up to 5.1
@@ -1671,6 +1685,41 @@ void hb_title_close( hb_title_t ** _t )
     *_t = NULL;
 }
 
+// The mac ui expects certain fields of the job struct to be cleaned up
+// and others to remain untouched.
+// e.g. picture settings like cropping, width, height, should remain untouched.
+//
+// So only initialize job elements that we know get set up by prepareJob and
+// prepareJobForPreview.
+//
+// This should all get resolved in some future mac ui refactoring.
+static void job_reset_for_mac_ui( hb_job_t * job, hb_title_t * title )
+{
+    if ( job == NULL || title == NULL )
+        return;
+
+    job->title = title;
+
+    /* Set defaults settings */
+    job->chapter_start = 1;
+    job->chapter_end   = hb_list_count( title->list_chapter );
+    job->list_chapter = hb_chapter_list_copy( title->list_chapter );
+
+    job->vcodec     = HB_VCODEC_FFMPEG_MPEG4;
+    job->vquality   = -1.0;
+    job->vbitrate   = 1000;
+    job->pass       = 0;
+    job->vrate      = title->rate;
+    job->vrate_base = title->rate_base;
+
+    job->list_audio = hb_list_init();
+    job->list_subtitle = hb_list_init();
+    job->list_filter = hb_list_init();
+
+    job->list_attachment = hb_attachment_list_copy( title->list_attachment );
+    job->metadata = hb_metadata_copy( title->metadata );
+}
+
 static void job_setup( hb_job_t * job, hb_title_t * title )
 {
     if ( job == NULL || title == NULL )
@@ -1741,6 +1790,14 @@ static void job_clean( hb_job_t * job )
         job->file = NULL;
         free(job->advanced_opts);
         job->advanced_opts = NULL;
+        free(job->x264_preset);
+        job->x264_preset = NULL;
+        free(job->x264_tune);
+        job->x264_tune = NULL;
+        free(job->x264_profile);
+        job->x264_profile = NULL;
+        free(job->h264_level);
+        job->h264_level = NULL;
 
         // clean up chapter list
         while( ( chapter = hb_list_item( job->list_chapter, 0 ) ) )
@@ -1827,7 +1884,7 @@ void hb_job_reset( hb_job_t * job )
     {
         hb_title_t * title = job->title;
         job_clean(job);
-        job_setup(job, title);
+        job_reset_for_mac_ui(job, title);
     }
 }
 
@@ -1859,6 +1916,38 @@ void hb_job_set_advanced_opts( hb_job_t *job, const char *advanced_opts )
     if ( job )
     {
         hb_update_str( &job->advanced_opts, advanced_opts );
+    }
+}
+
+void hb_job_set_x264_preset( hb_job_t *job, const char *preset )
+{
+    if ( job )
+    {
+        hb_update_str( &job->x264_preset, preset );
+    }
+}
+
+void hb_job_set_x264_tune( hb_job_t *job, const char *tune )
+{
+    if ( job )
+    {
+        hb_update_str( &job->x264_tune, tune );
+    }
+}
+
+void hb_job_set_x264_profile( hb_job_t *job, const char *profile )
+{
+    if ( job )
+    {
+        hb_update_str( &job->x264_profile, profile );
+    }
+}
+
+void hb_job_set_x264_level( hb_job_t *job, const char *level )
+{
+    if ( job )
+    {
+        hb_update_str( &job->h264_level, level );
     }
 }
 

@@ -101,7 +101,7 @@ typedef struct hb_lock_s hb_lock_t;
 #define PRIVATE const
 #endif
 #include "audio_remap.h"
-#include "libavutil/audioconvert.h"
+#include "libavutil/channel_layout.h"
 
 hb_list_t * hb_list_init();
 int         hb_list_count( const hb_list_t * );
@@ -120,6 +120,10 @@ void hb_limit_rational64( int64_t *x, int64_t *y, int64_t num, int64_t den, int6
 void hb_fix_aspect( hb_job_t * job, int keep );
 
 void hb_job_set_advanced_opts( hb_job_t *job, const char *advanced_opts );
+void hb_job_set_x264_preset( hb_job_t *job, const char *preset );
+void hb_job_set_x264_tune( hb_job_t *job, const char *tune );
+void hb_job_set_x264_profile( hb_job_t *job, const char *profile );
+void hb_job_set_x264_level( hb_job_t *job, const char *level );
 void hb_job_set_file( hb_job_t *job, const char *file );
 
 hb_audio_t *hb_audio_copy(const hb_audio_t *src);
@@ -166,24 +170,24 @@ void hb_chapter_set_title(hb_chapter_t *chapter, const char *title);
 
 struct hb_rate_s
 {
-    char * string;
-    int    rate;
+    const char *string;
+    int         rate;
 };
 
 struct hb_mixdown_s
 {
-    char * human_readable_name;
-    char * internal_name;
-    char * short_name;
-    int    amixdown;
+    const char *human_readable_name;
+    const char *internal_name;
+    const char *short_name;
+    int         amixdown;
 };
 
 struct hb_encoder_s
 {
-    char * human_readable_name; // note: used in presets
-    char * short_name;          // note: used in CLI
-    int    encoder;             // HB_*CODEC_* define
-    int    muxers;              // supported muxers
+    const char *human_readable_name; // note: used in presets
+    const char *short_name;          // note: used in CLI
+    int         encoder;             // HB_*CODEC_* define
+    int         muxers;              // supported muxers
 };
 
 struct hb_subtitle_config_s
@@ -229,32 +233,37 @@ int           hb_get_video_encoders_count();
 hb_encoder_t* hb_get_audio_encoders();
 int           hb_get_audio_encoders_count();
 
-int hb_mixdown_is_supported(int mixdown, uint32_t codec, uint64_t layout);
-int hb_mixdown_has_codec_support(int mixdown, uint32_t codec);
-int hb_mixdown_has_remix_support(int mixdown, uint64_t layout);
-int hb_mixdown_get_discrete_channel_count(int amixdown);
-int hb_mixdown_get_low_freq_channel_count(int amixdown);
-int hb_mixdown_get_mixdown_from_short_name(const char *short_name);
+int         hb_mixdown_is_supported(int mixdown, uint32_t codec, uint64_t layout);
+int         hb_mixdown_has_codec_support(int mixdown, uint32_t codec);
+int         hb_mixdown_has_remix_support(int mixdown, uint64_t layout);
+int         hb_mixdown_get_discrete_channel_count(int amixdown);
+int         hb_mixdown_get_low_freq_channel_count(int amixdown);
+int         hb_mixdown_get_mixdown_from_short_name(const char *short_name);
 const char* hb_mixdown_get_short_name_from_mixdown(int amixdown);
 
-int hb_mixdown_get_mixdown_from_short_name( const char * short_name );
-const char * hb_mixdown_get_short_name_from_mixdown( int amixdown );
-void hb_autopassthru_apply_settings( hb_job_t * job );
-void hb_autopassthru_print_settings( hb_job_t * job );
-int hb_autopassthru_get_encoder( int in_codec, int copy_mask, int fallback, int muxer );
+void hb_autopassthru_apply_settings(hb_job_t *job);
+void hb_autopassthru_print_settings(hb_job_t *job);
+int  hb_autopassthru_get_encoder(int in_codec, int copy_mask, int fallback, int muxer);
+
+int hb_get_default_audio_encoder(int muxer);
+
 int hb_get_best_mixdown(uint32_t codec, uint64_t layout, int mixdown);
 int hb_get_default_mixdown(uint32_t codec, uint64_t layout);
+
 int hb_get_best_samplerate(uint32_t codec, int samplerate, int *sr_shift);
-int hb_find_closest_audio_bitrate(int bitrate);
+
+int  hb_find_closest_audio_bitrate(int bitrate);
 void hb_get_audio_bitrate_limits(uint32_t codec, int samplerate, int mixdown, int *low, int *high);
-int hb_get_best_audio_bitrate( uint32_t codec, int bitrate, int samplerate, int mixdown);
-int hb_get_default_audio_bitrate( uint32_t codec, int samplerate, int mixdown );
-void hb_get_audio_quality_limits(uint32_t codec, float *low, float *high, float *granularity, int *direction);
-float hb_get_best_audio_quality( uint32_t codec, float quality);
-float hb_get_default_audio_quality( uint32_t codec );
-void hb_get_audio_compression_limits(uint32_t codec, float *low, float *high, float *granularity, int *direction);
-float hb_get_best_audio_compression( uint32_t codec, float compression);
-float hb_get_default_audio_compression( uint32_t codec );
+int  hb_get_best_audio_bitrate(uint32_t codec, int bitrate, int samplerate, int mixdown);
+int  hb_get_default_audio_bitrate(uint32_t codec, int samplerate, int mixdown);
+
+void  hb_get_audio_quality_limits(uint32_t codec, float *low, float *high, float *granularity, int *direction);
+float hb_get_best_audio_quality(uint32_t codec, float quality);
+float hb_get_default_audio_quality(uint32_t codec);
+
+void  hb_get_audio_compression_limits(uint32_t codec, float *low, float *high, float *granularity, int *direction);
+float hb_get_best_audio_compression(uint32_t codec, float compression);
+float hb_get_default_audio_compression(uint32_t codec);
 
 struct hb_title_set_s
 {
@@ -445,7 +454,7 @@ struct hb_job_s
 
 /* Audio starts here */
 /* Audio Codecs */
-#define HB_ACODEC_MASK      0x001FFF00
+#define HB_ACODEC_MASK      0x003FFF00
 #define HB_ACODEC_FAAC      0x00000100
 #define HB_ACODEC_LAME      0x00000200
 #define HB_ACODEC_VORBIS    0x00000400
@@ -459,7 +468,8 @@ struct hb_job_s
 #define HB_ACODEC_DCA_HD    0x00040000
 #define HB_ACODEC_MP3       0x00080000
 #define HB_ACODEC_FFFLAC    0x00100000
-#define HB_ACODEC_FF_MASK   0x001f2000
+#define HB_ACODEC_FFFLAC24  0x00200000
+#define HB_ACODEC_FF_MASK   0x003F2000
 #define HB_ACODEC_PASS_FLAG 0x40000000
 #define HB_ACODEC_PASS_MASK (HB_ACODEC_MP3 | HB_ACODEC_FFAAC | HB_ACODEC_DCA_HD | HB_ACODEC_AC3 | HB_ACODEC_DCA)
 #define HB_ACODEC_AUTO_PASS (HB_ACODEC_PASS_MASK | HB_ACODEC_PASS_FLAG)

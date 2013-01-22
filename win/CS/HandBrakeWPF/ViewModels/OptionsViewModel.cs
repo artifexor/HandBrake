@@ -19,10 +19,7 @@ namespace HandBrakeWPF.ViewModels
     using System.Linq;
     using System.Windows;
 
-    using Caliburn.Micro;
-
     using HandBrake.ApplicationServices;
-    using HandBrake.ApplicationServices.Exceptions;
     using HandBrake.ApplicationServices.Services.Interfaces;
     using HandBrake.ApplicationServices.Utilities;
 
@@ -312,7 +309,7 @@ namespace HandBrakeWPF.ViewModels
         /// <summary>
         /// The options tab that is selected.
         /// </summary>
-        private string selectedTab;
+        private OptionsTab selectedTab;
 
         /// <summary>
         /// Update Message
@@ -354,6 +351,11 @@ namespace HandBrakeWPF.ViewModels
         /// </summary>
         private bool enableLibHb;
 
+        /// <summary>
+        /// The show advanced tab backing field.
+        /// </summary>
+        private bool showAdvancedTab;
+
         #endregion
 
         #region Constructors and Destructors
@@ -378,7 +380,7 @@ namespace HandBrakeWPF.ViewModels
             this.updateService = updateService;
             this.OnLoad();
 
-            this.SelectedTab = "General";
+            this.SelectedTab = OptionsTab.General;
             this.UpdateMessage = "Click 'Check for Updates' to check for new versions";
         }
 
@@ -387,20 +389,9 @@ namespace HandBrakeWPF.ViewModels
         #region Window Properties
 
         /// <summary>
-        /// Gets OptionTabs.
-        /// </summary>
-        public IEnumerable<string> OptionTabs
-        {
-            get
-            {
-                return new List<string> { "General", "Output Files", "Audio and Subtitles", "Advanced", "Updates" };
-            }
-        }
-
-        /// <summary>
         /// Gets or sets SelectedTab.
         /// </summary>
-        public string SelectedTab
+        public OptionsTab SelectedTab
         {
             get
             {
@@ -413,6 +404,12 @@ namespace HandBrakeWPF.ViewModels
                 this.NotifyOfPropertyChange(() => this.SelectedTab);
             }
         }
+
+        /// <summary>
+        /// Gets or sets the about view model.
+        /// </summary>
+        public IAboutViewModel AboutViewModel { get; set; }
+
         #endregion
 
         #region Properties
@@ -798,7 +795,7 @@ namespace HandBrakeWPF.ViewModels
             set
             {
                 this.selectedPreferredLangauge = value;
-                this.NotifyOfPropertyChange("SelectedPreferreedLangauge");
+                this.NotifyOfPropertyChange(() => SelectedPreferredLangauge);
             }
         }
 
@@ -815,7 +812,7 @@ namespace HandBrakeWPF.ViewModels
             set
             {
                 this.selectedPreferredSubtitleLangauge = value;
-                this.NotifyOfPropertyChange("SelectedPreferredSubtitleLangauge");
+                this.NotifyOfPropertyChange(() => SelectedPreferredSubtitleLangauge);
             }
         }
 
@@ -1342,7 +1339,7 @@ namespace HandBrakeWPF.ViewModels
         }
 
         /// <summary>
-        /// Enable Debugging features in the UI.
+        /// Gets or sets a value indicating whether debug features are enabled.
         /// </summary>
         public bool EnableDebugFeatures
         {
@@ -1370,6 +1367,22 @@ namespace HandBrakeWPF.ViewModels
             {
                 this.enableLibHb = value;
                 this.NotifyOfPropertyChange(() => this.EnableLibHb);
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether enable lib hb.
+        /// </summary>
+        public bool ShowAdvancedTab
+        {
+            get
+            {
+                return this.showAdvancedTab;
+            }
+            set
+            {
+                this.showAdvancedTab = value;
+                this.NotifyOfPropertyChange(() => this.ShowAdvancedTab);
             }
         }
 
@@ -1638,6 +1651,7 @@ namespace HandBrakeWPF.ViewModels
             this.MinimiseToTray = this.userSettingService.GetUserSetting<bool>(UserSettingConstants.MainWindowMinimize);
             this.DisablePresetUpdateCheckNotification = this.userSettingService.GetUserSetting<bool>(UserSettingConstants.PresetNotification);
             this.ClearQueueOnEncodeCompleted = userSettingService.GetUserSetting<bool>(ASUserSettingConstants.ClearCompletedFromQueue);
+            this.ShowAdvancedTab = userSettingService.GetUserSetting<bool>(UserSettingConstants.ShowAdvancedTab);
 
             // Set the preview count
             this.PreviewPicturesToScan.Clear();
@@ -1653,7 +1667,6 @@ namespace HandBrakeWPF.ViewModels
             this.ConstantQualityGranularity.Add("1.00");
             this.ConstantQualityGranularity.Add("0.50");
             this.ConstantQualityGranularity.Add("0.25");
-            this.ConstantQualityGranularity.Add("0.20");
             this.SelectedGranulairty = userSettingService.GetUserSetting<double>(UserSettingConstants.X264Step).ToString("0.00", CultureInfo.InvariantCulture);
 
             // Min Title Length
@@ -1713,7 +1726,7 @@ namespace HandBrakeWPF.ViewModels
         /// <summary>
         /// Audio List Move Left
         /// </summary>
-        public void LanguageMoveLeft()
+        public void LanguageMoveRight()
         {
             if (this.SelectedAvailableToMove.Count > 0)
             {
@@ -1731,7 +1744,7 @@ namespace HandBrakeWPF.ViewModels
         /// <summary>
         /// Audio List Move Right
         /// </summary>
-        public void LanguageMoveRight()
+        public void LanguageMoveLeft()
         {
             if (this.SelectedLangaugesToMove.Count > 0)
             {
@@ -1873,6 +1886,7 @@ namespace HandBrakeWPF.ViewModels
             userSettingService.SetUserSetting(ASUserSettingConstants.ClearCompletedFromQueue, this.ClearQueueOnEncodeCompleted);
             userSettingService.SetUserSetting(ASUserSettingConstants.PreviewScanCount, this.SelectedPreviewCount);
             userSettingService.SetUserSetting(UserSettingConstants.X264Step, double.Parse(this.SelectedGranulairty, CultureInfo.InvariantCulture));
+            userSettingService.SetUserSetting(UserSettingConstants.ShowAdvancedTab, this.ShowAdvancedTab);
 
             int value;
             if (int.TryParse(this.MinLength.ToString(CultureInfo.InvariantCulture), out value))
@@ -1942,6 +1956,17 @@ namespace HandBrakeWPF.ViewModels
 
             Process.Start(Path.Combine(Path.GetTempPath(), "handbrake-setup.exe"));
             Application.Current.Shutdown();
+        }
+
+        /// <summary>
+        /// The goto tab.
+        /// </summary>
+        /// <param name="tab">
+        /// The tab.
+        /// </param>
+        public void GotoTab(OptionsTab tab)
+        {
+            this.SelectedTab = tab;
         }
     }
 }

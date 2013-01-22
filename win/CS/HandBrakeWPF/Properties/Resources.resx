@@ -178,7 +178,7 @@ Transformed Exhaustive: Like exhaustive, but makes even more accurate decisions.
   </data>
   <data name="Advanced_MotionEstimationRangeToolTip" xml:space="preserve">
     <value>This is the distance x264 searches from its best guess at the motion of a block in order to try to find its actual motion.  
-Doesn't apply to Diamond or Hexagon search options.  
+
 The default is fine for most content, but extremely high motion video, especially at HD resolutions, may benefit from higher ranges, albeit at a high speed cost.</value>
   </data>
   <data name="Advanced_NoDctDecimateToolTip" xml:space="preserve">
@@ -236,5 +236,96 @@ may have problems with Weighted P-frame prediction: the Apple TV is completely i
   <assembly alias="System.Windows.Forms" name="System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089" />
   <data name="logo64" type="System.Resources.ResXFileRef, System.Windows.Forms">
     <value>..\Resources\logo64.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="Video_x264ExtraArgs" xml:space="preserve">
+    <value>The full x264 list of parameters: {0}</value>
+  </data>
+  <data name="Video_x264FastDecode" xml:space="preserve">
+    <value>Reduce decoder CPU usage.
+
+Set this if your device is struggling to play the output. (i.e. dropped frames)</value>
+  </data>
+  <data name="Video_x264Level" xml:space="preserve">
+    <value>Sets and ensures compliance with the specified H.264 Levels. This will override all other settings.</value>
+  </data>
+  <data name="Video_x264Preset" xml:space="preserve">
+    <value>Adjusts x264 settings to trade off compression efficiency against encoding speed.
+
+This establishes your default x264 settings. Tunes, profiles, levels and advanced options string will be applied to this.
+
+You should generally set this option to the slowest you can bear since slower settings will result in better quality or smaller files.</value>
+  </data>
+  <data name="Video_x264Profile" xml:space="preserve">
+    <value>Limit the H.264 profile of the output stream. This will override all other settings.</value>
+  </data>
+  <data name="Video_x264Tune" xml:space="preserve">
+    <value>Tune settings to optimise for common scenarios
+
+This can improve efficiency for particular source characteristics or set of characteristics of the output file.
+
+Changes will be applied after the preset but before all other parameters.</value>
+  </data>
+  <data name="Video_QualitySlider" xml:space="preserve">
+    <value>Set the desired quality factor. The encoder targets a certain quality. 
+The scale used by each video encoder is different.
+
+x264's scale is logarithmic and lower values correspond to higher quality. 
+So small increases in value will result in progressively larger increases in the resulting file size. 
+A value of 0 means lossless and will result in a file size that is larger than the original source, 
+unless the source was also lossless. 
+Suggested values are: 18 to 20 for Standard Definition and 20 to 23 for High Definition.
+
+FFMpeg's and Theora's scale is more linear. These encoders do not have a lossless mode.</value>
+  </data>
+  <data name="Video_LosslessWarning" xml:space="preserve">
+    <value>Warning: RF 0 is Lossless!</value>
+  </data>
+  <data name="Video_LosslessWarningTooltip" xml:space="preserve">
+    <value>A value of 0 means lossless and will result in a file size that is larger than the original source, 
+unless the source was also lossless. 
+
+x264's scale is logarithmic and lower values correspond to higher quality. 
+
+So small increases in value will result in progressively larger increases in the resulting file size. 
+
+Suggested values are: 18 to 20 for Standard Definition and 20 to 23 for High Definition.</value>
+  </data>
+  <data name="AddPreset_PictureSizeMode" xml:space="preserve">
+    <value>You can optionally store a maximum resolution for encodes that use this preset. There are 3 modes:
+
+None:  There is no maximum resolution for encodes using this preset. They will always use the source resolution minus any cropping that may be applied.
+
+Custom: You can optionally set a Maximum width and height. When doing this an encode will be less than or equal to these values.
+
+Source Maximum:  Similar to custom, but the resolution of your current source is used as the Max width and Height values instead.</value>
+  </data>
+  <data name="Advanced_EncoderOptions" xml:space="preserve">
+    <value>The options passed to the x264 encoder. 
+The above controls are only a subset of useful x264 parameters. 
+This box allows you to add or modify additional or current parameters as desired. </value>
+  </data>
+  <data name="About_GPL" xml:space="preserve">
+    <value>Copyright (C) 2003-2013 The HandBrake Team
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.</value>
+  </data>
+  <data name="Advanced_NotInUse" xml:space="preserve">
+    <value>The x264 Preset / Tune / Profile and Level options are currently in use on the Video Tab. 
+
+To enable this tab, check the "Use Advanced Tab instead" option on the Video Tab.
+
+If you do not use this tab, it can be hidden from: Tools Menu &gt; Options &gt; Advanced.</value>
   </data>
 </root>
