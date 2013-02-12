@@ -71,6 +71,7 @@ static int    allowed_audio_copy = -1;
 static char * mixdowns    = NULL;
 static char * dynamic_range_compression = NULL;
 static char * audio_gain  = NULL;
+static char ** audio_dither = NULL;
 static char ** normalize_mix_level  = NULL;
 static char * atracks     = NULL;
 static char * arates      = NULL;
@@ -112,10 +113,10 @@ static int    chapter_start = 0;
 static int    chapter_end   = 0;
 static int    chapter_markers = 0;
 static char * marker_file   = NULL;
-static char * advanced_opts = NULL;
-static char * x264_profile  = NULL;
 static char * x264_preset   = NULL;
 static char * x264_tune     = NULL;
+static char * advanced_opts = NULL;
+static char * h264_profile  = NULL;
 static char * h264_level    = NULL;
 static int    maxHeight     = 0;
 static int    maxWidth      = 0;
@@ -156,6 +157,7 @@ static int  ParseOptions( int argc, char ** argv );
 static int  CheckOptions( int argc, char ** argv );
 static int  HandleEvents( hb_handle_t * h );
 
+static       int   get_dither_for_string(const char *dither);
 static       int   get_acodec_for_string(const char *codec);
 static const char* get_string_for_acodec(int acodec);
 
@@ -357,6 +359,7 @@ int main( int argc, char ** argv )
     str_vfree(abitrates);
     str_vfree(acompressions);
     str_vfree(aqualities);
+    str_vfree(audio_dither);
     free(acodecs);
     free(arates);
     free(atracks);
@@ -371,7 +374,7 @@ int main( int argc, char ** argv )
     free(x264_preset);
     free(x264_tune);
     free(advanced_opts);
-    free(x264_profile);
+    free(h264_profile);
     free(h264_level);
 
     // write a carriage return to stdout
@@ -734,9 +737,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         x264_preset = strdup("fast");
                     }
-                    if (x264_profile == NULL)
+                    if (h264_profile == NULL)
                     {
-                        x264_profile = strdup("baseline");
+                        h264_profile = strdup("baseline");
                     }
                     if (h264_level == NULL)
                     {
@@ -789,9 +792,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         x264_preset = strdup("medium");
                     }
-                    if (x264_profile == NULL)
+                    if (h264_profile == NULL)
                     {
-                        x264_profile = strdup("baseline");
+                        h264_profile = strdup("baseline");
                     }
                     if (h264_level == NULL)
                     {
@@ -840,9 +843,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         x264_preset = strdup("medium");
                     }
-                    if (x264_profile == NULL)
+                    if (h264_profile == NULL)
                     {
-                        x264_profile = strdup("high");
+                        h264_profile = strdup("high");
                     }
                     if (h264_level == NULL)
                     {
@@ -895,9 +898,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         x264_preset = strdup("medium");
                     }
-                    if (x264_profile == NULL)
+                    if (h264_profile == NULL)
                     {
-                        x264_profile = strdup("high");
+                        h264_profile = strdup("high");
                     }
                     if (h264_level == NULL)
                     {
@@ -950,9 +953,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         x264_preset = strdup("medium");
                     }
-                    if (x264_profile == NULL)
+                    if (h264_profile == NULL)
                     {
-                        x264_profile = strdup("high");
+                        h264_profile = strdup("high");
                     }
                     if (h264_level == NULL)
                     {
@@ -1009,9 +1012,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         x264_preset = strdup("medium");
                     }
-                    if (x264_profile == NULL)
+                    if (h264_profile == NULL)
                     {
-                        x264_profile = strdup("high");
+                        h264_profile = strdup("high");
                     }
                     if (h264_level == NULL)
                     {
@@ -1064,9 +1067,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         x264_preset = strdup("medium");
                     }
-                    if (x264_profile == NULL)
+                    if (h264_profile == NULL)
                     {
-                        x264_profile = strdup("high");
+                        h264_profile = strdup("high");
                     }
                     if (h264_level == NULL)
                     {
@@ -1120,9 +1123,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         x264_preset = strdup("medium");
                     }
-                    if (x264_profile == NULL)
+                    if (h264_profile == NULL)
                     {
-                        x264_profile = strdup("main");
+                        h264_profile = strdup("main");
                     }
                     if (h264_level == NULL)
                     {
@@ -1173,9 +1176,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         x264_preset = strdup("medium");
                     }
-                    if (x264_profile == NULL)
+                    if (h264_profile == NULL)
                     {
-                        x264_profile = strdup("main");
+                        h264_profile = strdup("main");
                     }
                     if (h264_level == NULL)
                     {
@@ -1223,9 +1226,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         x264_preset = strdup("veryfast");
                     }
-                    if (x264_profile == NULL)
+                    if (h264_profile == NULL)
                     {
-                        x264_profile = strdup("main");
+                        h264_profile = strdup("main");
                     }
                     if (h264_level == NULL)
                     {
@@ -1275,9 +1278,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         x264_preset = strdup("medium");
                     }
-                    if (x264_profile == NULL)
+                    if (h264_profile == NULL)
                     {
-                        x264_profile = strdup("high");
+                        h264_profile = strdup("high");
                     }
                     if (h264_level == NULL)
                     {
@@ -2089,6 +2092,58 @@ static int HandleEvents( hb_handle_t * h )
             }
             /* Audio Gain */
 
+            /* Audio Dither */
+            if (audio_dither != NULL)
+            {
+                int dither_method = hb_audio_dither_get_default();
+                for (i = 0; audio_dither[i] != NULL; i++)
+                {
+                    dither_method = get_dither_for_string(audio_dither[i]);
+                    audio = hb_list_audio_config_item(job->list_audio, i);
+                    if (audio != NULL)
+                    {
+                        if (hb_audio_dither_is_supported(audio->out.codec))
+                        {
+                            audio->out.dither_method = dither_method;
+                        }
+                        else if (dither_method != hb_audio_dither_get_default())
+                        {
+                            fprintf(stderr,
+                                    "Ignoring dither %s, not supported by codec\n",
+                                    audio_dither[i]);
+                        }
+                    }
+                    else
+                    {
+                        fprintf(stderr, "Ignoring dither %s, no audio tracks\n",
+                                audio_dither[i]);
+                    }
+                }
+                if (i < num_audio_tracks && i == 1)
+                {
+                    /*
+                     * We have fewer inputs than audio tracks, and we only have
+                     * one input: use that for all tracks.
+                     */
+                    while (i < num_audio_tracks)
+                    {
+                        audio = hb_list_audio_config_item(job->list_audio, i);
+                        if (hb_audio_dither_is_supported(audio->out.codec))
+                        {
+                            audio->out.dither_method = dither_method;
+                        }
+                        else if (dither_method != hb_audio_dither_get_default())
+                        {
+                            fprintf(stderr,
+                                    "Ignoring dither %s, not supported by codec\n",
+                                    audio_dither[0]);
+                        }
+                        i++;
+                    }
+                }
+            }
+            /* Audio Dither */
+
             /* Audio Mix Normalization */
             i = 0;
             int norm = 0;
@@ -2455,8 +2510,8 @@ static int HandleEvents( hb_handle_t * h )
 
             hb_job_set_x264_preset(job, x264_preset);
             hb_job_set_x264_tune(job, x264_tune);
-            hb_job_set_x264_profile(job, x264_profile);
-            hb_job_set_x264_level(job, h264_level);
+            hb_job_set_h264_profile(job, h264_profile);
+            hb_job_set_h264_level(job, h264_level);
 
             if (maxWidth)
                 job->maxWidth = maxWidth;
@@ -2771,10 +2826,10 @@ static void ShowHelp()
     "    -x, --encopts <string>  Specify advanced encoder options in the\n"
     "                            same style as mencoder (x264 and ffmpeg only):\n"
     "                            option1=value1:option2=value2\n"
-    "        --x264-profile      When using x264, ensures compliance with the\n"
-    "          <string>          specified h.264 profile:\n"
+    "        --h264-profile      When using x264, ensures compliance with the\n"
+    "          <string>          specified H.264 profile:\n"
     "                            ");
-    x264_opts = hb_x264_profiles();
+    x264_opts = hb_h264_profiles();
     tmp[0] = 0;
     len = 0;
     while( x264_opts && *x264_opts )
@@ -2794,7 +2849,7 @@ static void ShowHelp()
         fprintf( out, "%s\n", tmp );
     fprintf( out,
     "        --h264-level        When using x264, ensures compliance with the\n"
-    "          <string>          specified h.264 level:\n"
+    "          <string>          specified H.264 level:\n"
     "                            ");
     x264_opts = hb_h264_levels();
     tmp[0] = 0;
@@ -2938,6 +2993,36 @@ static void ShowHelp()
     "                            NOT work with audio passthru (copy). Values are in\n"
     "                            dB.  Negative values attenuate, positive values\n"
     "                            amplify. A 1 dB difference is barely audible.\n"
+    "        --adither <string>  Apply dithering to the audio before encoding.\n"
+    "                            Separated by commas for more than one audio track.\n"
+    "                            Only supported by some encoders (");
+    for (i = j = 0; i < hb_audio_encoders_count; i++)
+    {
+        if (hb_audio_dither_is_supported(hb_audio_encoders[i].encoder))
+        {
+            if (j)
+                fprintf(out, "/");
+            fprintf(out, "%s", hb_audio_encoders[i].short_name);
+            j = 1;
+        }
+    }
+    fprintf(out, ").\n");
+    fprintf(out,
+    "                            Options:\n");
+    for (i = 0; i < hb_audio_dithers_count; i++)
+    {
+        if (hb_audio_dithers[i].method == hb_audio_dither_get_default())
+        {
+            fprintf(out, "                               %s (default)\n",
+                    hb_audio_dithers[i].short_name);
+        }
+        else
+        {
+            fprintf(out, "                               %s\n",
+                    hb_audio_dithers[i].short_name);
+        }
+    }
+    fprintf(out,
     "    -A, --aname <string>    Audio track name(s),\n"
     "                            Separated by commas for more than one audio track.\n"
     "\n"
@@ -3070,19 +3155,19 @@ static void ShowPresets()
     fprintf( stderr, "%s - %s - %s\n", HB_PROJECT_TITLE, HB_PROJECT_BUILD_TITLE, HB_PROJECT_URL_WEBSITE );
 
     printf("\n< Devices\n");
-    printf("\n   + Universal:  -e x264  -q 20.0 -r 30 --pfr  -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -X 720 --loose-anamorphic --modulus 2 -m --x264-preset fast --x264-profile baseline --h264-level 3.0\n");
-    printf("\n   + iPod:  -e x264  -q 22.0 -r 30 --pfr  -a 1 -E faac -B 160 -6 dpl2 -R Auto -D 0.0 -f mp4 -I -X 320 --modulus 2 -m --x264-preset medium --x264-profile baseline --h264-level 1.3\n");
-    printf("\n   + iPhone & iPod Touch:  -e x264  -q 22.0 -r 29.97 --pfr  -a 1 -E faac -B 160 -6 dpl2 -R Auto -D 0.0 -f mp4 -4 -X 960 --loose-anamorphic --modulus 2 -m --x264-preset medium --x264-profile high --h264-level 3.1\n");
-    printf("\n   + iPad:  -e x264  -q 20.0 -r 29.97 --pfr  -a 1 -E faac -B 160 -6 dpl2 -R Auto -D 0.0 -f mp4 -4 -X 1280 --loose-anamorphic --modulus 2 -m --x264-preset medium --x264-profile high --h264-level 3.1\n");
-    printf("\n   + AppleTV:  -e x264  -q 20.0 -r 30 --pfr  -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -4 -X 960 --loose-anamorphic --modulus 2 -m --x264-preset medium --x264-profile high --h264-level 3.1 -x cabac=0:ref=2:b-pyramid=none:weightb=0:weightp=0:vbv-maxrate=9500:vbv-bufsize=9500\n");
-    printf("\n   + AppleTV 2:  -e x264  -q 20.0 -r 29.97 --pfr  -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -4 -X 1280 --loose-anamorphic --modulus 2 -m --x264-preset medium --x264-profile high --h264-level 3.1\n");
-    printf("\n   + AppleTV 3:  -e x264  -q 20.0 -r 30 --pfr  -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -4 -X 1920 --decomb=fast --loose-anamorphic --modulus 2 -m --x264-preset medium --x264-profile high --h264-level 4.0\n");
-    printf("\n   + Android:  -e x264  -q 22.0 -r 29.97 --pfr  -a 1 -E faac -B 128 -6 dpl2 -R Auto -D 0.0 -f mp4 -X 720 --loose-anamorphic --modulus 2 --x264-preset medium --x264-profile main --h264-level 2.2\n");
-    printf("\n   + Android Tablet:  -e x264  -q 22.0 -r 29.97 --pfr  -a 1 -E faac -B 128 -6 dpl2 -R Auto -D 0.0 -f mp4 -X 1280 --loose-anamorphic --modulus 2 --x264-preset medium --x264-profile main --h264-level 3.1\n");
+    printf("\n   + Universal:  -e x264  -q 20.0 -r 30 --pfr  -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -X 720 --loose-anamorphic --modulus 2 -m --x264-preset fast --h264-profile baseline --h264-level 3.0\n");
+    printf("\n   + iPod:  -e x264  -q 22.0 -r 30 --pfr  -a 1 -E faac -B 160 -6 dpl2 -R Auto -D 0.0 -f mp4 -I -X 320 --modulus 2 -m --x264-preset medium --h264-profile baseline --h264-level 1.3\n");
+    printf("\n   + iPhone & iPod Touch:  -e x264  -q 22.0 -r 29.97 --pfr  -a 1 -E faac -B 160 -6 dpl2 -R Auto -D 0.0 -f mp4 -4 -X 960 --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 3.1\n");
+    printf("\n   + iPad:  -e x264  -q 20.0 -r 29.97 --pfr  -a 1 -E faac -B 160 -6 dpl2 -R Auto -D 0.0 -f mp4 -4 -X 1280 --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 3.1\n");
+    printf("\n   + AppleTV:  -e x264  -q 20.0 -r 30 --pfr  -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -4 -X 960 --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 3.1 -x cabac=0:ref=2:b-pyramid=none:weightb=0:weightp=0:vbv-maxrate=9500:vbv-bufsize=9500\n");
+    printf("\n   + AppleTV 2:  -e x264  -q 20.0 -r 29.97 --pfr  -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -4 -X 1280 --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 3.1\n");
+    printf("\n   + AppleTV 3:  -e x264  -q 20.0 -r 30 --pfr  -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -4 -X 1920 --decomb=fast --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 4.0\n");
+    printf("\n   + Android:  -e x264  -q 22.0 -r 29.97 --pfr  -a 1 -E faac -B 128 -6 dpl2 -R Auto -D 0.0 -f mp4 -X 720 --loose-anamorphic --modulus 2 --x264-preset medium --h264-profile main --h264-level 2.2\n");
+    printf("\n   + Android Tablet:  -e x264  -q 22.0 -r 29.97 --pfr  -a 1 -E faac -B 128 -6 dpl2 -R Auto -D 0.0 -f mp4 -X 1280 --loose-anamorphic --modulus 2 --x264-preset medium --h264-profile main --h264-level 3.1\n");
     printf("\n>\n");
     printf("\n< Regular\n");
-    printf("\n   + Normal:  -e x264  -q 20.0 -a 1 -E faac -B 160 -6 dpl2 -R Auto -D 0.0 -f mp4 --loose-anamorphic --modulus 2 -m --x264-preset veryfast --x264-profile main --h264-level 4.0\n");
-    printf("\n   + High Profile:  -e x264  -q 20.0 -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -4 --decomb --loose-anamorphic --modulus 2 -m --x264-preset medium --x264-profile high --h264-level 4.1\n");
+    printf("\n   + Normal:  -e x264  -q 20.0 -a 1 -E faac -B 160 -6 dpl2 -R Auto -D 0.0 -f mp4 --loose-anamorphic --modulus 2 -m --x264-preset veryfast --h264-profile main --h264-level 4.0\n");
+    printf("\n   + High Profile:  -e x264  -q 20.0 -a 1,1 -E faac,copy:ac3 -B 160,160 -6 dpl2,auto -R Auto,Auto -D 0.0,0.0 -f mp4 -4 --decomb --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 4.1\n");
     printf("\n>\n");
 
 }
@@ -3196,11 +3281,12 @@ static int ParseOptions( int argc, char ** argv )
     #define ALLOWED_AUDIO_COPY  280
     #define AUDIO_FALLBACK      281
     #define LOOSE_CROP          282
-    #define X264_PROFILE        283
-    #define X264_PRESET         284
-    #define X264_TUNE           285
+    #define X264_PRESET         283
+    #define X264_TUNE           284
+    #define H264_PROFILE        285
     #define H264_LEVEL          286
     #define NORMALIZE_MIX       287
+    #define AUDIO_DITHER        288
     
     for( ;; )
     {
@@ -3230,6 +3316,7 @@ static int ParseOptions( int argc, char ** argv )
             { "normalize-mix", required_argument, NULL,  NORMALIZE_MIX },
             { "drc",         required_argument, NULL,    'D' },
             { "gain",        required_argument, NULL,    AUDIO_GAIN },
+            { "adither",     required_argument, NULL,    AUDIO_DITHER },
             { "subtitle",    required_argument, NULL,    's' },
             { "subtitle-forced", optional_argument,   NULL,    'F' },
             { "subtitle-burned", optional_argument,   NULL,    SUB_BURNED },
@@ -3271,11 +3358,11 @@ static int ParseOptions( int argc, char ** argv )
             { "ac",          required_argument, NULL,    'C' },
             { "rate",        required_argument, NULL,    'r' },
             { "arate",       required_argument, NULL,    'R' },
-            { "encopts",     required_argument, NULL,    'x' },
-            { "x264-profile", required_argument, NULL,   X264_PROFILE },
-            { "h264-profile", required_argument, NULL,   X264_PROFILE },
             { "x264-preset", required_argument, NULL,    X264_PRESET },
             { "x264-tune",   required_argument, NULL,    X264_TUNE },
+            { "encopts",     required_argument, NULL,    'x' },
+            { "x264-profile", required_argument, NULL,   H264_PROFILE },
+            { "h264-profile", required_argument, NULL,   H264_PROFILE },
             { "h264-level",  required_argument, NULL,    H264_LEVEL },
             { "turbo",       no_argument,       NULL,    'T' },
             { "maxHeight",   required_argument, NULL,    'Y' },
@@ -3445,6 +3532,12 @@ static int ParseOptions( int argc, char ** argv )
                 if( optarg != NULL )
                 {
                     audio_gain = strdup( optarg );
+                }
+                break;
+            case AUDIO_DITHER:
+                if (optarg != NULL)
+                {
+                    audio_dither = str_split(optarg, ',');
                 }
                 break;
             case NORMALIZE_MIX:
@@ -3708,17 +3801,17 @@ static int ParseOptions( int argc, char ** argv )
             case 'C':
                 acompressions = str_split( optarg, ',' );
                 break;
-            case 'x':
-                advanced_opts = strdup( optarg );
-                break;
-            case X264_PROFILE:
-                x264_profile = strdup( optarg );
-                break;
             case X264_PRESET:
                 x264_preset = strdup( optarg );
                 break;
             case X264_TUNE:
                 x264_tune = strdup( optarg );
+                break;
+            case 'x':
+                advanced_opts = strdup( optarg );
+                break;
+            case H264_PROFILE:
+                h264_profile = strdup( optarg );
                 break;
             case H264_LEVEL:
                 h264_level = strdup( optarg );
@@ -3972,6 +4065,19 @@ static int CheckOptions( int argc, char ** argv )
     }
 
     return 0;
+}
+
+static int get_dither_for_string(const char *dither)
+{
+    int i;
+    for (i = 0; i < hb_audio_dithers_count; i++)
+    {
+        if (!strcasecmp(hb_audio_dithers[i].short_name, dither))
+        {
+            return hb_audio_dithers[i].method;
+        }
+    }
+    return hb_audio_dither_get_default();
 }
 
 static int get_acodec_for_string(const char *codec)

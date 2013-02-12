@@ -132,16 +132,6 @@ namespace HandBrakeWPF
         public const string Skipversion = "skipversion";
 
         /// <summary>
-        /// Tooltip
-        /// </summary>
-        public const string TooltipEnable = "tooltipEnable";
-
-        /// <summary>
-        /// Tray Icon
-        /// </summary>
-        public const string TrayIconAlerts = "trayIconAlerts";
-
-        /// <summary>
         /// Update Status
         /// </summary>
         public const string UpdateStatus = "updateStatus";
@@ -215,6 +205,11 @@ namespace HandBrakeWPF
         /// The show advanced tab.
         /// </summary>
         public const string ShowAdvancedTab = "ShowAdvancedTab";
+
+        /// <summary>
+        /// The last preview duration
+        /// </summary>
+        public const string LastPreviewDuration = "LastPreviewDuration";
 
         #endregion
     }

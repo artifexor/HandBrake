@@ -70,6 +70,7 @@
 typedef struct hb_handle_s hb_handle_t;
 typedef struct hb_list_s hb_list_t;
 typedef struct hb_rate_s hb_rate_t;
+typedef struct hb_dither_s hb_dither_t;
 typedef struct hb_mixdown_s hb_mixdown_t;
 typedef struct hb_encoder_s hb_encoder_t;
 typedef struct hb_job_s  hb_job_t;
@@ -122,8 +123,8 @@ void hb_fix_aspect( hb_job_t * job, int keep );
 void hb_job_set_advanced_opts( hb_job_t *job, const char *advanced_opts );
 void hb_job_set_x264_preset( hb_job_t *job, const char *preset );
 void hb_job_set_x264_tune( hb_job_t *job, const char *tune );
-void hb_job_set_x264_profile( hb_job_t *job, const char *profile );
-void hb_job_set_x264_level( hb_job_t *job, const char *level );
+void hb_job_set_h264_profile( hb_job_t *job, const char *profile );
+void hb_job_set_h264_level( hb_job_t *job, const char *level );
 void hb_job_set_file( hb_job_t *job, const char *file );
 
 hb_audio_t *hb_audio_copy(const hb_audio_t *src);
@@ -174,6 +175,13 @@ struct hb_rate_s
     int         rate;
 };
 
+struct hb_dither_s
+{
+    const char *description;
+    const char *short_name;
+    int         method;
+};
+
 struct hb_mixdown_s
 {
     const char *human_readable_name;
@@ -211,6 +219,8 @@ extern int          hb_audio_rates_count;
 extern int          hb_audio_rates_default;
 extern hb_rate_t    hb_audio_bitrates[];
 extern int          hb_audio_bitrates_count;
+extern hb_dither_t  hb_audio_dithers[];
+extern int          hb_audio_dithers_count;
 extern hb_mixdown_t hb_audio_mixdowns[];
 extern int          hb_audio_mixdowns_count;
 extern hb_encoder_t hb_video_encoders[];
@@ -226,12 +236,19 @@ int           hb_get_audio_rates_count();
 int           hb_get_audio_rates_default();
 hb_rate_t*    hb_get_audio_bitrates();
 int           hb_get_audio_bitrates_count();
+hb_dither_t*  hb_get_audio_dithers();
+int           hb_get_audio_dithers_count();
 hb_mixdown_t* hb_get_audio_mixdowns();
 int           hb_get_audio_mixdowns_count();
 hb_encoder_t* hb_get_video_encoders();
 int           hb_get_video_encoders_count();
 hb_encoder_t* hb_get_audio_encoders();
 int           hb_get_audio_encoders_count();
+
+int         hb_audio_dither_get_default();
+int         hb_audio_dither_get_default_method();
+int         hb_audio_dither_is_supported(uint32_t codec);
+const char* hb_audio_dither_get_description(int method);
 
 int         hb_mixdown_is_supported(int mixdown, uint32_t codec, uint64_t layout);
 int         hb_mixdown_has_codec_support(int mixdown, uint32_t codec);
@@ -355,10 +372,10 @@ struct hb_job_s
     int             cfr;
     int             pass;
     int             fastfirstpass;
-    char            *advanced_opts;
-    char            *x264_profile;
     char            *x264_preset;
     char            *x264_tune;
+    char            *advanced_opts;
+    char            *h264_profile;
     char            *h264_level;
     int             areBframes;
 
@@ -519,6 +536,7 @@ struct hb_audio_config_s
         double   dynamic_range_compression; /* Amount of DRC applied to this track */
         double   gain; /* Gain (in dB), negative is quieter */
         int      normalize_mix_level; /* mix level normalization (boolean) */
+        int      dither_method; /* dither algorithm */
         char *   name; /* Output track name */
     } out;
 
@@ -1032,13 +1050,13 @@ const char * hb_subsource_name( int source );
 
 // unparse a set of x264 settings to an HB encopts string
 char * hb_x264_param_unparse(const char *x264_preset,  const char *x264_tune,
-                             const char *x264_encopts, const char *x264_profile,
+                             const char *x264_encopts, const char *h264_profile,
                              const char *h264_level, int width, int height);
 
-// x264 preset/tune/profile & h264 level helpers
+// x264 preset/tune & h264 profile/level helpers
 const char * const * hb_x264_presets();
 const char * const * hb_x264_tunes();
-const char * const * hb_x264_profiles();
+const char * const * hb_h264_profiles();
 const char * const * hb_h264_levels();
 
 // x264 option name/synonym helper

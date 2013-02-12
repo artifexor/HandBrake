@@ -440,6 +440,12 @@ namespace HandBrakeWPF.ViewModels
         {
             get
             {
+                // Sanity Check
+                if (ScannedSource == null || ScannedSource.ScanPath == null)
+                {
+                    return string.Empty;
+                }
+
                 // The title that is selected has a source name. This means it's part of a batch scan.
                 if (selectedTitle != null && !string.IsNullOrEmpty(selectedTitle.SourceName))
                 {
@@ -589,7 +595,7 @@ namespace HandBrakeWPF.ViewModels
             set
             {
                 this.isMkv = value;
-                this.NotifyOfPropertyChange("IsMkv");
+                this.NotifyOfPropertyChange(() => this.IsMkv);
             }
         }
 
@@ -660,6 +666,7 @@ namespace HandBrakeWPF.ViewModels
                     }
 
                     // Use the Path on the Title, or the Source Scan path if one doesn't exist.
+                    this.SourceLabel = this.SourceName;
                     this.CurrentTask.Source = !string.IsNullOrEmpty(this.selectedTitle.SourceName) ? this.selectedTitle.SourceName : this.ScannedSource.ScanPath;
                     this.CurrentTask.Title = value.TitleNumber;
                     this.NotifyOfPropertyChange(() => this.StartEndRangeItems);
@@ -699,12 +706,18 @@ namespace HandBrakeWPF.ViewModels
             {
                 return this.CurrentTask.StartPoint;
             }
+
             set
             {
                 this.CurrentTask.Angle = value;
                 this.NotifyOfPropertyChange(() => this.SelectedAngle);
             }
         }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether is timespan range.
+        /// </summary>
+        public bool IsTimespanRange { get; set; }
 
         /// <summary>
         /// Gets or sets SelectedStartPoint.
@@ -721,7 +734,7 @@ namespace HandBrakeWPF.ViewModels
                 this.NotifyOfPropertyChange(() => this.SelectedStartPoint);
                 this.Duration = this.DurationCalculation();
 
-                if (this.UserSettingService.GetUserSetting<bool>(UserSettingConstants.AutoNaming))
+                if (this.UserSettingService.GetUserSetting<bool>(UserSettingConstants.AutoNaming) && this.ScannedSource.ScanPath != null)
                 {
                     this.Destination = AutoNameHelper.AutoName(this.CurrentTask, this.SourceName);
                 }
@@ -743,7 +756,7 @@ namespace HandBrakeWPF.ViewModels
                 this.NotifyOfPropertyChange(() => this.SelectedEndPoint);
                 this.Duration = this.DurationCalculation();
 
-                if (this.UserSettingService.GetUserSetting<bool>(UserSettingConstants.AutoNaming))
+                if (this.UserSettingService.GetUserSetting<bool>(UserSettingConstants.AutoNaming) && this.ScannedSource.ScanPath != null)
                 {
                     this.Destination = AutoNameHelper.AutoName(this.CurrentTask, this.SourceName);
                 }
@@ -767,21 +780,41 @@ namespace HandBrakeWPF.ViewModels
 
                 if (value == PointToPointMode.Chapters && this.SelectedTitle != null)
                 {
+                    if (this.selectedTitle == null)
+                    {
+                        return;
+                    }
+
+
                     this.SelectedStartPoint = 1;
                     this.SelectedEndPoint = selectedTitle.Chapters.Last().ChapterNumber;
                 } 
                 else if (value == PointToPointMode.Seconds)
                 {
+                    if (this.selectedTitle == null)
+                    {
+                        return;
+                    }
+
+
                     this.SelectedStartPoint = 0;
 
                     int timeInSeconds;
                     if (int.TryParse(selectedTitle.Duration.TotalSeconds.ToString(CultureInfo.InvariantCulture), out timeInSeconds))
                     {
                         this.SelectedEndPoint = timeInSeconds;
-                    }    
+                    }
+
+                    this.IsTimespanRange = true;
+                    this.NotifyOfPropertyChange(() => this.IsTimespanRange);
                 }
                 else
                 {
+                    if (this.selectedTitle == null)
+                    {
+                        return;
+                    }
+
                     // Note this does not account for VFR. It's only a guesstimate. 
                     double estimatedTotalFrames = selectedTitle.Fps * selectedTitle.Duration.TotalSeconds;
 
@@ -791,6 +824,9 @@ namespace HandBrakeWPF.ViewModels
                     {
                         this.SelectedEndPoint = totalFrames;
                     }
+
+                    this.IsTimespanRange = false;
+                    this.NotifyOfPropertyChange(() => this.IsTimespanRange);
                 }
             }
         }
@@ -1514,15 +1550,20 @@ namespace HandBrakeWPF.ViewModels
                     this.NotifyOfPropertyChange(() => this.ScannedSource.Titles);
 
                     // Select the Users Title
-                    this.CurrentTask = new EncodeTask(queueEditTask);
-                    this.NotifyOfPropertyChange(() => this.CurrentTask);
                     this.SelectedTitle = this.ScannedSource.Titles.FirstOrDefault(t => t.TitleNumber == this.CurrentTask.Title);
-
-                    // Update the Main UI control Area (TODO)
                     this.CurrentTask = new EncodeTask(queueEditTask);
                     this.NotifyOfPropertyChange(() => this.CurrentTask);
 
-                    // Update the Tab Controls (TODO)
+                    // Update the Main Window
+                    this.NotifyOfPropertyChange(() => this.Destination);
+                    this.NotifyOfPropertyChange(() => this.SelectedStartPoint);
+                    this.NotifyOfPropertyChange(() => this.SelectedEndPoint);
+                    this.NotifyOfPropertyChange(() => this.SelectedAngle);
+                    this.NotifyOfPropertyChange(() => this.SelectedPointToPoint);
+                    this.NotifyOfPropertyChange(() => this.SelectedOutputFormat);
+                    this.NotifyOfPropertyChange(() => IsMkv);
+
+                    // Update the Tab Controls
                     this.PictureSettingsViewModel.UpdateTask(this.CurrentTask);
                     this.VideoViewModel.UpdateTask(this.CurrentTask);
                     this.FiltersViewModel.UpdateTask(this.CurrentTask);
@@ -1531,8 +1572,14 @@ namespace HandBrakeWPF.ViewModels
                     this.ChaptersViewModel.UpdateTask(this.CurrentTask);
                     this.AdvancedViewModel.UpdateTask(this.CurrentTask);
 
+                    // Tell the Preivew Window
+                    IPreviewViewModel viewModel = IoC.Get<IPreviewViewModel>();
+                    viewModel.Task = this.CurrentTask;
+
                     // Cleanup
                     this.ShowStatusWindow = false;
+                    this.SourceLabel = this.SourceName;
+                    this.StatusLabel = "Scan Completed";
                 });
         }
 
@@ -1641,6 +1688,7 @@ namespace HandBrakeWPF.ViewModels
                 this.ProgramStatusLabel = "A New Update is Available. Goto Tools Menu > Options to Install";
             }
         }
+
         #endregion
 
         #region Event Handlers
@@ -1684,15 +1732,7 @@ namespace HandBrakeWPF.ViewModels
                     this.ShowStatusWindow = false;
                     if (e.Successful)
                     {
-                        if (this.SelectedTitle != null && !string.IsNullOrEmpty(this.SelectedTitle.SourceName))
-                        {
-                            this.SourceLabel = this.SelectedTitle.SourceName;
-                        }
-                        else
-                        {
-                            this.SourceLabel = this.SourceName;
-                        }
-
+                        this.SourceLabel = this.SourceName;
                         this.StatusLabel = "Scan Completed";
                     }
                     else if (!e.Successful && e.Exception == null)
